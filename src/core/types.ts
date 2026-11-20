@@ -11,6 +11,9 @@ export type ControlIcon =
   | 'spray'
   | 'bubbles'
   | 'wind'
+  | 'forkLeft'
+  | 'forkStraight'
+  | 'forkRight'
   | 'ok'
   | 'back'
   | 'skip';

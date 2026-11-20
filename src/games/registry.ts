@@ -1,5 +1,6 @@
 import { ArcadeGameDefinition } from '../core/types';
 import { trainGameDefinition } from './train';
+import { conductorGameDefinition } from './conductor';
 import { carWashGameDefinition } from './carwash';
 
 /**
@@ -9,5 +10,6 @@ import { carWashGameDefinition } from './carwash';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const GAME_REGISTRY: ArcadeGameDefinition<any>[] = [
   trainGameDefinition,
+  conductorGameDefinition,
   carWashGameDefinition,
 ];

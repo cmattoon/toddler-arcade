@@ -56,12 +56,20 @@ Because you can plug your physical colored buttons into any `K1`–`K12` 2-pin h
    - **Joystick Left / Right**: Push right to accelerate forward (automatically starts the engine if off); release to coast smoothly with inertia; push left to slow down or gently reverse.
    - **Green Button**: Start engine (or shut down when stopped).
    - **Yellow Button**: Blast the steam whistle & puff steam.
-   - **Red Button**: Apply air brakes with friction sparks.
    - **Red Button**: Momentary air brakes with friction sparks (auto-releases at standstill so brakes never get stuck on).
    - **Blue Button**: Cycle locomotive paint colors.
-   - **World Loop**: Travels endlessly through `[station -> cityscape -> suburbscape -> rural -> rural2 -> suburb -> city -> station -> ...]`.
+   - **World Loop & Stations**: Travels endlessly through `[station -> cityscape -> suburbscape -> rural -> rural2 -> suburb -> city -> station -> ...]`, with confetti celebrations and passengers boarding/alighting when stopping at stations (zero penalty for skipping).
 
-2. **Bubble Car Wash (`src/games/carwash/index.ts`)**
+2. **Cab Conductor (`src/games/conductor/index.ts`)**
+   - **1st-Person Cab POV**: Look out over the boiler nose onto 3D-perspective tracks with a glowing coal firebox, moving throttle lever, analog brass speedometer + steam gauge, and a friendly Conductor character.
+   - **Joystick Up / Down**: Push up (`FWD`) to accelerate forward with inertia; pull back (`REV`) to slow down or reverse.
+   - **Track Switch Forks (every ~6–8s)**:
+     - **Red Button (`Port`)**: Throw track switch Left — Conductor extends left arm waving a Red signal flag!
+     - **Blue Button (`Ahead`)**: Throw track switch Straight Ahead (on 3-way forks) — Conductor raises arms overhead waving a Blue signal flag!
+     - **Green Button (`Starboard`)**: Throw track switch Right — Conductor extends right arm waving a Green signal flag!
+   - **Yellow Button (`Whistle`)**: Pulls the overhead brass whistle cord & blasts the steam whistle.
+
+3. **Bubble Car Wash (`src/games/carwash/index.ts`)**
    - **Green Button (`Next Car`)**: Summon a muddy car from the waiting queue into the empty wash bay. If pressed while a car still needs steps completed, all remaining step lights (and matching buttons) flash to show what's left!
    - **Blue Button (`Water`)** + **Sweep Joystick Left/Right**: Spray water for **1. WASH** and **3. RINSE**.
    - **Yellow Button (`Soap`)** + **Sweep Joystick Left/Right**: Scrub bubbly foam for **2. SOAP**.

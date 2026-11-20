@@ -575,4 +575,44 @@ export class ArcadeAudio {
     osc.start(now);
     osc.stop(now + 0.11);
   }
+
+  /** Mechanical railroad switch lever clack-chunk + directional confirmation chime */
+  public playTrackSwitch(branch: 'left' | 'straight' | 'right'): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+
+    // 1. Heavy steel lever clack
+    if (this.noiseBuffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(520, now);
+      filter.Q.setValueAtTime(2.6, now);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.28, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      src.connect(filter);
+      filter.connect(g);
+      g.connect(this.masterGain);
+      src.start(now, 0.2, 0.09);
+    }
+
+    // 2. Distinct musical confirmation tone (Port = warm C5, Straight = E5, Starboard = bright G5)
+    const targetFreq = branch === 'left' ? 440.0 : branch === 'straight' ? 554.37 : 659.25;
+    [targetFreq * 0.75, targetFreq].forEach((freq, idx) => {
+      const t = now + idx * 0.055;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.22, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
+  }
 }

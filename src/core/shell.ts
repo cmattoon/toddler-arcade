@@ -194,8 +194,8 @@ export class ArcadeShell {
   }
 
   private getGridColumns(count: number): number {
-    if (count <= 2) return count;
-    if (count <= 4) return 2;
+    if (count <= 3) return count;
+    if (count === 4) return 2;
     return 3;
   }
 
@@ -321,11 +321,11 @@ export class ArcadeShell {
 
     const gridTop = headerY + 66;
     const availH = height - gridTop - 28;
-    const availW = Math.min(width - 80, 980);
+    const availW = Math.min(width - 64, 1140);
 
-    const gap = 34;
-    const cardW = Math.min(390, Math.floor((availW - gap * (cols - 1)) / cols));
-    const cardH = Math.min(310, Math.floor((availH - gap * (rows - 1)) / rows));
+    const gap = 28;
+    const cardW = Math.min(370, Math.floor((availW - gap * (cols - 1)) / cols));
+    const cardH = Math.min(305, Math.floor((availH - gap * (rows - 1)) / rows));
 
     const totalGridW = cols * cardW + (cols - 1) * gap;
     const totalGridH = rows * cardH + (rows - 1) * gap;
@@ -498,7 +498,7 @@ export class ArcadeShell {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Subtle left/right directional arrows beside the joystick dust-washer
+    // Subtle 4-way directional arrows around the joystick dust-washer
     ctx.fillStyle = snap.dirDown.LEFT ? '#FFD54F' : 'rgba(207, 216, 220, 0.45)';
     ctx.beginPath();
     ctx.moveTo(stickBaseX - 42, stickBaseY + 2);
@@ -512,6 +512,22 @@ export class ArcadeShell {
     ctx.moveTo(stickBaseX + 42, stickBaseY + 2);
     ctx.lineTo(stickBaseX + 33, stickBaseY - 4);
     ctx.lineTo(stickBaseX + 33, stickBaseY + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = snap.dirDown.UP ? '#FFD54F' : 'rgba(207, 216, 220, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(stickBaseX, stickBaseY - 31);
+    ctx.lineTo(stickBaseX - 6, stickBaseY - 23);
+    ctx.lineTo(stickBaseX + 6, stickBaseY - 23);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = snap.dirDown.DOWN ? '#FFD54F' : 'rgba(207, 216, 220, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(stickBaseX, stickBaseY + 29);
+    ctx.lineTo(stickBaseX - 6, stickBaseY + 21);
+    ctx.lineTo(stickBaseX + 6, stickBaseY + 21);
     ctx.closePath();
     ctx.fill();
 
@@ -773,6 +789,42 @@ export class ArcadeShell {
       ctx.lineTo(4, 6);
       ctx.arc(4, 8.5, 2.5, -Math.PI * 0.5, Math.PI * 0.8, false);
       ctx.stroke();
+    } else if (icon === 'forkLeft') {
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(2, 9);
+      ctx.quadraticCurveTo(2, 0, -7, -6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-8, -7);
+      ctx.lineTo(-1, -8);
+      ctx.lineTo(-6, 0);
+      ctx.closePath();
+      ctx.fill();
+    } else if (icon === 'forkStraight') {
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(0, -6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(-6, -2);
+      ctx.lineTo(6, -2);
+      ctx.closePath();
+      ctx.fill();
+    } else if (icon === 'forkRight') {
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-2, 9);
+      ctx.quadraticCurveTo(-2, 0, 7, -6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(8, -7);
+      ctx.lineTo(1, -8);
+      ctx.lineTo(6, 0);
+      ctx.closePath();
+      ctx.fill();
     } else if (icon === 'skip') {
       ctx.beginPath();
       ctx.moveTo(-7, -6);
