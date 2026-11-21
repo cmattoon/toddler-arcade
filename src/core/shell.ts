@@ -1,5 +1,10 @@
 import { ArcadeAudio } from './audio';
-import { ALL_PHYSICAL_BUTTONS, InputManager, PressedPadButton } from './input';
+import {
+  ALL_PHYSICAL_BUTTONS,
+  InputManager,
+  PressedPadButton,
+  TYPE1_PHYSICAL_BUTTONS,
+} from './input';
 import { CABINET_COLOR_COLUMNS, CABINET_COLOR_PALETTE, drawCabinetShape } from './shapes';
 import {
   ArcadeGameDefinition,
@@ -11,6 +16,7 @@ import {
   Direction,
   GamepadButtonSlot,
   MergedColorButton,
+  PanelType,
   PhysicalButton,
   SHAPE_BUTTON_LIST,
   SHAPE_BUTTON_META,
@@ -82,6 +88,7 @@ export class ArcadeShell {
       if (e.code === 'F2') {
         this.configModalOpen = !this.configModalOpen;
         this.listeningForButton = null;
+        this.input.cancelStickCalibration();
       } else if (e.code === 'Tab') {
         this.showDeckBar = !this.showDeckBar;
       }
@@ -259,6 +266,16 @@ export class ArcadeShell {
 
   private updateConfigModal(snap: CabinetSnapshot): void {
     const raw = this.input.getRawGamepadDebug();
+
+    if (this.input.getStickCalibrationStep()) {
+      const res = this.input.updateStickCalibration();
+      if (res === 'step') {
+        this.audio.playMenuMove();
+      } else if (res === 'done') {
+        this.audio.playMenuSelect();
+      }
+    }
+
     if (this.listeningForButton && raw.connected) {
       const newlyPressed = raw.pressedButtons.find(
         (p) => !this.prevRawPressed.some((prev) => prev.pad === p.pad && prev.button === p.button)
@@ -279,7 +296,7 @@ export class ArcadeShell {
     }
     this.prevRawPressed = [...raw.pressedButtons];
 
-    if (snap.buttonJustPressed.ESC && !this.listeningForButton) {
+    if (snap.buttonJustPressed.ESC && !this.listeningForButton && !this.input.getStickCalibrationStep()) {
       this.configModalOpen = false;
     }
   }
@@ -516,7 +533,9 @@ export class ArcadeShell {
       },
     });
 
-    const badgeW = snap.gamepadConnected ? 116 : 98;
+    const pType = this.input.getMapping().panelType === 'type2' ? 'TYPE 2' : 'TYPE 1';
+    const badgeLabel = snap.gamepadConnected ? `${pType} · USB` : `${pType} · KEYS`;
+    const badgeW = 112;
     rightX -= badgeW + 6;
     ctx.fillStyle = 'rgba(20, 25, 38, 0.56)';
     ctx.beginPath();
@@ -525,21 +544,23 @@ export class ArcadeShell {
 
     ctx.fillStyle = snap.gamepadConnected ? '#4CAF50' : '#FFB300';
     ctx.beginPath();
-    ctx.arc(rightX + 17, y + 17, 5.5, 0, Math.PI * 2);
+    ctx.arc(rightX + 16, y + 17, 5.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = '#ECEFF1';
     ctx.font = '700 11px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(
-      snap.gamepadConnected
-        ? snap.gamepadCount > 1
-          ? `${snap.gamepadCount} USB PADS`
-          : 'USB STICK'
-        : 'KEYS / USB',
-      rightX + 28,
-      y + 18
-    );
+    ctx.fillText(badgeLabel, rightX + 27, y + 18);
+    this.hitRegions.push({
+      x: rightX,
+      y,
+      w: badgeW,
+      h: 34,
+      onDown: () => {
+        this.configModalOpen = !this.configModalOpen;
+        this.listeningForButton = null;
+      },
+    });
   }
 
   /**
@@ -744,14 +765,13 @@ export class ArcadeShell {
     }
 
     // =========================================================================
-    // 3. RIGHT CLUSTER: 2x4 Colored Primary Interaction Buttons (R, G, B, Y)
+    // 3. RIGHT CLUSTER: Colored Primary Interaction Buttons
+    //    - Type 1 (EG STARTS 12-btn): 4 single colored buttons (R, G, B, Y)
+    //    - Type 2 (Dual-row 16+ btn): 2x4 colored button columns
     // =========================================================================
+    const panelType = this.input.getMapping().panelType;
     const colSpacing = Math.min(82, Math.max(58, width * 0.064));
     const rightStartX = Math.min(width - 54 - colSpacing * 3, Math.round(width * 0.61));
-    const row0Y = topY + Math.round(barH * 0.27);
-    const row1Y = topY + Math.round(barH * 0.63);
-    const colorR = Math.min(16, Math.round(barH * 0.138));
-    const isMerged = override.colorMode === 'merged4';
 
     // Map activeGameDef controls onto the 4 columns if available
     const defByColor = new Map<MergedColorButton, { label: string; icon: ControlIcon }>();
@@ -763,101 +783,170 @@ export class ArcadeShell {
       }
     }
 
-    CABINET_COLOR_COLUMNS.forEach((mergedCol, colIdx) => {
-      const cx = rightStartX + colIdx * colSpacing;
-      const pair = COLOR_PAIR_BUTTONS[mergedCol];
-      const pal = CABINET_COLOR_PALETTE[mergedCol];
-      const defInfo = defByColor.get(mergedCol);
-      const colLabel =
-        override.columnLabels?.[mergedCol] ??
-        defInfo?.label ??
-        (this.activeGame ? pal.name : '');
+    if (panelType === 'type1') {
+      // Type 1: 4 Single Large Colored Buttons (Red, Green, Blue, Yellow)
+      const singleY = topY + Math.round(barH * 0.43);
+      const singleR = Math.min(22, Math.round(barH * 0.195));
 
-      const isPairFlashing =
-        (flashingSet.has(mergedCol) || flashingSet.has(pair.top) || flashingSet.has(pair.bottom)) &&
-        flashPulse;
-      const isPairDown = snap.buttonDown[mergedCol];
+      CABINET_COLOR_COLUMNS.forEach((mergedCol, colIdx) => {
+        const cx = rightStartX + colIdx * colSpacing;
+        const pair = COLOR_PAIR_BUTTONS[mergedCol];
+        const pal = CABINET_COLOR_PALETTE[mergedCol];
+        const defInfo = defByColor.get(mergedCol);
+        const colLabel =
+          override.columnLabels?.[mergedCol] ??
+          defInfo?.label ??
+          (this.activeGame ? pal.name : '');
 
-      // In Simple Mode ('merged4'), draw a soft linking capsule around the vertical pair
-      // so it's clear that both buttons in that column act together!
-      if (isMerged) {
-        ctx.save();
-        ctx.fillStyle = isPairDown
-          ? 'rgba(255, 255, 255, 0.22)'
-          : 'rgba(255, 255, 255, 0.07)';
-        ctx.strokeStyle = isPairFlashing
-          ? '#FFFFFF'
-          : isPairDown
-            ? pal.face
-            : 'rgba(255, 255, 255, 0.16)';
-        ctx.lineWidth = isPairFlashing ? 3 : 1.5;
-        const capW = (colorR + 6) * 2;
-        const capTop = row0Y - colorR - 5;
-        const capH = row1Y - row0Y + (colorR + 5) * 2;
-        ctx.beginPath();
-        ctx.roundRect(cx - capW / 2, capTop, capW, capH, capW / 2);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      const subButtons: Array<{ btn: SplitColorButton; cy: number }> = [
-        { btn: pair.top, cy: row0Y },
-        { btn: pair.bottom, cy: row1Y },
-      ];
-
-      for (const sub of subButtons) {
-        const btnDown = isMerged ? isPairDown : snap.buttonDown[sub.btn];
+        const btnDown = snap.buttonDown[mergedCol];
         const btnFlash =
-          (isMerged ? isPairFlashing : flashingSet.has(sub.btn) && flashPulse);
+          (flashingSet.has(mergedCol) || flashingSet.has(pair.top) || flashingSet.has(pair.bottom)) &&
+          flashPulse;
 
         this.hitRegions.push({
-          x: cx - colorR - 8,
-          y: sub.cy - colorR - 4,
-          w: (colorR + 8) * 2,
-          h: (colorR + 4) * 2,
-          onDown: () => this.input.setVirtualButton(sub.btn, true),
-          onUp: () => this.input.setVirtualButton(sub.btn, false),
+          x: cx - singleR - 8,
+          y: singleY - singleR - 8,
+          w: (singleR + 8) * 2,
+          h: (singleR + 8) * 2,
+          onDown: () => this.input.setVirtualButton(pair.top, true),
+          onUp: () => this.input.setVirtualButton(pair.top, false),
         });
 
         ctx.save();
         if (btnDown || btnFlash) {
           ctx.shadowColor = btnFlash ? '#FFFFFF' : pal.glow;
-          ctx.shadowBlur = btnFlash ? 20 : 14;
+          ctx.shadowBlur = btnFlash ? 22 : 16;
         }
 
-        ctx.fillStyle = '#ECEFF1';
+        ctx.fillStyle = btnFlash ? '#FFFFFF' : '#ECEFF1';
         ctx.beginPath();
-        ctx.arc(cx, sub.cy, colorR + 2.2, 0, Math.PI * 2);
+        ctx.arc(cx, singleY, singleR + 2.8, 0, Math.PI * 2);
         ctx.fill();
 
-        const pressOff = btnDown ? 1.5 : 0;
+        const pressOff = btnDown ? 1.8 : 0;
         ctx.fillStyle = btnDown ? pal.light : pal.face;
         ctx.beginPath();
-        ctx.arc(cx, sub.cy + pressOff, colorR, 0, Math.PI * 2);
+        ctx.arc(cx, singleY + pressOff, singleR, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
-        const iconToDraw: ControlIcon | undefined = !isMerged
-          ? override.splitIcons?.[sub.btn]
-          : defInfo?.icon;
-        if (iconToDraw) {
+        if (defInfo?.icon) {
           ctx.save();
-          ctx.translate(cx, sub.cy + pressOff);
-          ctx.scale(0.72, 0.72);
-          this.drawButtonIcon(ctx, 0, 0, iconToDraw);
+          ctx.translate(cx, singleY + pressOff);
+          ctx.scale(0.95, 0.95);
+          this.drawButtonIcon(ctx, 0, 0, defInfo.icon);
           ctx.restore();
         }
-      }
 
-      if (colLabel) {
-        ctx.fillStyle = '#ECEFF1';
-        ctx.font = '700 11px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(colLabel, cx, row1Y + colorR + 6);
-      }
-    });
+        if (colLabel) {
+          ctx.fillStyle = '#ECEFF1';
+          ctx.font = '700 11.5px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText(colLabel, cx, singleY + singleR + 8);
+        }
+      });
+    } else {
+      // Type 2: 2x4 Dual-Row Colored Buttons (for future 30-32 button board)
+      const row0Y = topY + Math.round(barH * 0.27);
+      const row1Y = topY + Math.round(barH * 0.63);
+      const colorR = Math.min(16, Math.round(barH * 0.138));
+      const isMerged = override.colorMode === 'merged4';
+
+      CABINET_COLOR_COLUMNS.forEach((mergedCol, colIdx) => {
+        const cx = rightStartX + colIdx * colSpacing;
+        const pair = COLOR_PAIR_BUTTONS[mergedCol];
+        const pal = CABINET_COLOR_PALETTE[mergedCol];
+        const defInfo = defByColor.get(mergedCol);
+        const colLabel =
+          override.columnLabels?.[mergedCol] ??
+          defInfo?.label ??
+          (this.activeGame ? pal.name : '');
+
+        const isPairFlashing =
+          (flashingSet.has(mergedCol) || flashingSet.has(pair.top) || flashingSet.has(pair.bottom)) &&
+          flashPulse;
+        const isPairDown = snap.buttonDown[mergedCol];
+
+        if (isMerged) {
+          ctx.save();
+          ctx.fillStyle = isPairDown
+            ? 'rgba(255, 255, 255, 0.22)'
+            : 'rgba(255, 255, 255, 0.07)';
+          ctx.strokeStyle = isPairFlashing
+            ? '#FFFFFF'
+            : isPairDown
+              ? pal.face
+              : 'rgba(255, 255, 255, 0.16)';
+          ctx.lineWidth = isPairFlashing ? 3 : 1.5;
+          const capW = (colorR + 6) * 2;
+          const capTop = row0Y - colorR - 5;
+          const capH = row1Y - row0Y + (colorR + 5) * 2;
+          ctx.beginPath();
+          ctx.roundRect(cx - capW / 2, capTop, capW, capH, capW / 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const subButtons: Array<{ btn: SplitColorButton; cy: number }> = [
+          { btn: pair.top, cy: row0Y },
+          { btn: pair.bottom, cy: row1Y },
+        ];
+
+        for (const sub of subButtons) {
+          const btnDown = isMerged ? isPairDown : snap.buttonDown[sub.btn];
+          const btnFlash =
+            (isMerged ? isPairFlashing : flashingSet.has(sub.btn) && flashPulse);
+
+          this.hitRegions.push({
+            x: cx - colorR - 8,
+            y: sub.cy - colorR - 4,
+            w: (colorR + 8) * 2,
+            h: (colorR + 4) * 2,
+            onDown: () => this.input.setVirtualButton(sub.btn, true),
+            onUp: () => this.input.setVirtualButton(sub.btn, false),
+          });
+
+          ctx.save();
+          if (btnDown || btnFlash) {
+            ctx.shadowColor = btnFlash ? '#FFFFFF' : pal.glow;
+            ctx.shadowBlur = btnFlash ? 20 : 14;
+          }
+
+          ctx.fillStyle = '#ECEFF1';
+          ctx.beginPath();
+          ctx.arc(cx, sub.cy, colorR + 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          const pressOff = btnDown ? 1.5 : 0;
+          ctx.fillStyle = btnDown ? pal.light : pal.face;
+          ctx.beginPath();
+          ctx.arc(cx, sub.cy + pressOff, colorR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          const iconToDraw: ControlIcon | undefined = !isMerged
+            ? override.splitIcons?.[sub.btn]
+            : defInfo?.icon;
+          if (iconToDraw) {
+            ctx.save();
+            ctx.translate(cx, sub.cy + pressOff);
+            ctx.scale(0.72, 0.72);
+            this.drawButtonIcon(ctx, 0, 0, iconToDraw);
+            ctx.restore();
+          }
+        }
+
+        if (colLabel) {
+          ctx.fillStyle = '#ECEFF1';
+          ctx.font = '700 11px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText(colLabel, cx, row1Y + colorR + 6);
+        }
+      });
+    }
   }
 
   private drawButtonIcon(
@@ -1065,7 +1154,19 @@ export class ArcadeShell {
     return '#FFFFFF';
   }
 
-  private getPhysicalButtonTitle(btn: PhysicalButton): string {
+  private getPhysicalButtonTitle(btn: PhysicalButton, panelType: PanelType): string {
+    if (panelType === 'type1') {
+      if (btn === 'R1') return 'Red';
+      if (btn === 'G1') return 'Green';
+      if (btn === 'B1') return 'Blue';
+      if (btn === 'Y1') return 'Yellow';
+      if (btn === 'ESC') return 'ESC (Back)';
+      if (btn === 'OK') return 'OK (Enter)';
+      if (btn in SHAPE_BUTTON_META) {
+        const m = SHAPE_BUTTON_META[btn as keyof typeof SHAPE_BUTTON_META];
+        return `White · ${m.label}`;
+      }
+    }
     if (btn in SHAPE_BUTTON_META) {
       const m = SHAPE_BUTTON_META[btn as keyof typeof SHAPE_BUTTON_META];
       return `${btn} (${m.label})`;
@@ -1078,11 +1179,11 @@ export class ArcadeShell {
     width: number,
     height: number
   ): void {
-    ctx.fillStyle = 'rgba(10, 14, 24, 0.85)';
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.86)';
     ctx.fillRect(0, 0, width, height);
 
-    const mw = Math.min(780, width - 36);
-    const mh = Math.min(580, height - 28);
+    const mw = Math.min(820, width - 36);
+    const mh = Math.min(600, height - 24);
     const mx = (width - mw) / 2;
     const my = (height - mh) / 2;
 
@@ -1098,57 +1199,109 @@ export class ArcadeShell {
     ctx.font = '800 20px system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('16-Button Arcade Control Deck Setup (Parent / Builder)', mx + 24, my + 30);
+    ctx.fillText('Arcade Hardware & Button Panel Setup (F2)', mx + 24, my + 28);
 
     const closeX = mx + mw - 92;
     ctx.fillStyle = '#475569';
     ctx.beginPath();
-    ctx.roundRect(closeX, my + 13, 68, 32, 10);
+    ctx.roundRect(closeX, my + 12, 68, 32, 10);
     ctx.fill();
     ctx.fillStyle = '#FFFFFF';
     ctx.font = '700 13px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Close', closeX + 34, my + 29);
+    ctx.fillText('Close', closeX + 34, my + 28);
     this.hitRegions.push({
       x: closeX,
-      y: my + 13,
+      y: my + 12,
       w: 68,
       h: 32,
       onDown: () => {
         this.configModalOpen = false;
         this.listeningForButton = null;
+        this.input.cancelStickCalibration();
       },
     });
 
+    const mapping = this.input.getMapping();
+    const panelType = mapping.panelType;
+
+    // Hardware Panel Profile Selector Row
+    const selectorY = my + 54;
+    const panelSpecs: Array<{ id: PanelType; title: string }> = [
+      { id: 'type1', title: 'Type 1: EG STARTS 12-Btn (6 Shapes + 4 Colors)' },
+      { id: 'type2', title: 'Type 2: Dual-Row 16-Btn (Future 32-Btn Board)' },
+    ];
+    const tabW = Math.floor((mw - 60) / 2);
+    panelSpecs.forEach((p, idx) => {
+      const tx = mx + 24 + idx * (tabW + 12);
+      const isActive = panelType === p.id;
+      ctx.fillStyle = isActive ? '#334155' : 'rgba(255, 255, 255, 0.05)';
+      ctx.beginPath();
+      ctx.roundRect(tx, selectorY, tabW, 34, 10);
+      ctx.fill();
+      if (isActive) {
+        ctx.strokeStyle = '#FFD54F';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+      }
+      ctx.fillStyle = isActive ? '#FFD54F' : '#CBD5E1';
+      ctx.font = '700 12.5px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.title, tx + tabW / 2, selectorY + 17.5);
+
+      this.hitRegions.push({
+        x: tx,
+        y: selectorY,
+        w: tabW,
+        h: 34,
+        onDown: () => {
+          if (panelType !== p.id) {
+            this.input.setPanelType(p.id);
+            this.listeningForButton = null;
+            this.input.cancelStickCalibration();
+            this.audio.playMenuSelect();
+          }
+        },
+      });
+    });
+
     const raw = this.input.getRawGamepadDebug();
+    const snap = this.input.getLastSnapshot();
     ctx.textAlign = 'left';
-    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.font = '600 12.5px system-ui, sans-serif';
     ctx.fillStyle = raw.connected ? '#81C784' : '#FFB74D';
     const statusText = raw.connected
-      ? `Connected (${raw.count} USB encoder${raw.count > 1 ? 's' : ''}): ${raw.id?.slice(0, 62)}`
-      : 'No USB encoder active yet — press any arcade button! (Keys: QWE/ASD shapes, 1234/ZXCV colors)';
-    ctx.fillText(statusText, mx + 24, my + 62);
+      ? `USB Controller (${raw.count}): ${raw.id?.slice(0, 68)}`
+      : 'No USB encoder active yet — press any arcade button! (Keys: QWE/ASD shapes, 1234 colors)';
+    ctx.fillText(statusText, mx + 24, my + 106);
 
     if (raw.connected) {
       const pressedStr =
-        raw.pressedButtons.map((p) => `P${p.pad}:B${p.button}`).join(', ') || 'none';
-      ctx.fillStyle = '#CBD5E1';
+        raw.pressedButtons
+          .map((p) => formatSlot({ pad: p.pad, button: p.button }))
+          .join(', ') || 'none';
+      const activeDirs = (['UP', 'DOWN', 'LEFT', 'RIGHT'] as Direction[]).filter(
+        (d) => snap.dirDown[d]
+      );
+      const dirBadge = activeDirs.length > 0 ? ` (${activeDirs.join('+')})` : '';
+      ctx.fillStyle = activeDirs.length > 0 ? '#FFD54F' : '#CBD5E1';
       ctx.fillText(
-        `Live Input  |  Stick Axes: [${raw.axes.slice(0, 2).join(', ')}]   Pressed: [${pressedStr}]`,
+        `Live Input (P${raw.stickPad})  |  Stick: [${raw.axesCompact}]${dirBadge}   Pressed: [${pressedStr}]`,
         mx + 24,
-        my + 84
+        my + 126
       );
     }
 
-    // 2-Column grid for all 16 physical buttons!
-    const mapping = this.input.getMapping();
-    const gridStartY = my + 108;
+    // Button mapping grid (12 buttons in 2x6 for Type 1; 16 buttons in 2x8 for Type 2)
+    const buttonList = panelType === 'type1' ? TYPE1_PHYSICAL_BUTTONS : ALL_PHYSICAL_BUTTONS;
+    const rowsPerCol = Math.ceil(buttonList.length / 2);
+    const gridStartY = my + 144;
     const colW = Math.floor((mw - 60) / 2);
-    const rowH = 44;
+    const rowH = panelType === 'type1' ? 52 : 42;
 
-    ALL_PHYSICAL_BUTTONS.forEach((btn, idx) => {
-      const col = idx < 8 ? 0 : 1;
-      const row = idx % 8;
+    buttonList.forEach((btn, idx) => {
+      const col = idx < rowsPerCol ? 0 : 1;
+      const row = idx % rowsPerCol;
       const rx = mx + 24 + col * (colW + 12);
       const ry = gridStartY + row * (rowH + 6);
       const isListening = this.listeningForButton === btn;
@@ -1166,91 +1319,132 @@ export class ArcadeShell {
       ctx.fillStyle = '#F8FAFC';
       ctx.font = '700 13px system-ui, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(this.getPhysicalButtonTitle(btn), rx + 34, ry + rowH / 2);
+      ctx.fillText(this.getPhysicalButtonTitle(btn, panelType), rx + 34, ry + rowH / 2);
 
-      const slots = (mapping.buttons[btn] ?? []).map(formatSlot).join(', ') || 'Unmapped';
-      ctx.fillStyle = '#94A3B8';
-      ctx.font = '600 12px system-ui, sans-serif';
-      ctx.fillText(slots, rx + 142, ry + rowH / 2);
+      const slots =
+        (mapping.buttons[btn] ?? []).map((s) => formatSlot(s)).join(', ') || 'Unmapped';
+      ctx.fillStyle = '#93C5FD';
+      ctx.font = '700 12px system-ui, sans-serif';
+      ctx.fillText(slots, rx + 162, ry + rowH / 2);
 
-      const mapBtnW = 92;
+      const mapBtnW = 88;
       const mapBtnX = rx + colW - mapBtnW - 8;
       ctx.fillStyle = isListening ? '#FFB300' : '#334155';
       ctx.beginPath();
-      ctx.roundRect(mapBtnX, ry + 7, mapBtnW, 30, 7);
+      ctx.roundRect(mapBtnX, ry + (rowH - 30) / 2, mapBtnW, 30, 7);
       ctx.fill();
       ctx.fillStyle = isListening ? '#141926' : '#E2E8F0';
       ctx.font = '700 12px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(isListening ? 'Press...' : 'Remap', mapBtnX + mapBtnW / 2, ry + 22);
+      ctx.fillText(isListening ? 'Press...' : 'Remap', mapBtnX + mapBtnW / 2, ry + rowH / 2 + 0.5);
 
       this.hitRegions.push({
         x: mapBtnX,
-        y: ry + 7,
+        y: ry + (rowH - 30) / 2,
         w: mapBtnW,
         h: 30,
         onDown: () => {
+          this.input.cancelStickCalibration();
           this.listeningForButton = isListening ? null : btn;
         },
       });
     });
 
     const footerY = my + mh - 42;
-    const invXBtn = mx + 24;
+    const calibStep = this.input.getStickCalibrationStep();
+    const calibBtnX = mx + 24;
+    const calibBtnW = 192;
+    let calibLabel =
+      mapping.stickPadLocked && mapping.stickPadIndex !== undefined
+        ? `Calibrate Stick (P${mapping.stickPadIndex})`
+        : 'Calibrate Stick';
+    if (calibStep === 'RIGHT') calibLabel = 'Push Stick RIGHT...';
+    else if (calibStep === 'RELEASE') calibLabel = 'Center Stick...';
+    else if (calibStep === 'DOWN') calibLabel = 'Push Stick DOWN...';
+
+    ctx.fillStyle = calibStep ? '#FFB300' : '#334155';
+    ctx.beginPath();
+    ctx.roundRect(calibBtnX, footerY, calibBtnW, 30, 8);
+    ctx.fill();
+    ctx.fillStyle = calibStep ? '#141926' : '#FFD54F';
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(calibLabel, calibBtnX + calibBtnW / 2, footerY + 15);
+    this.hitRegions.push({
+      x: calibBtnX,
+      y: footerY,
+      w: calibBtnW,
+      h: 30,
+      onDown: () => {
+        this.listeningForButton = null;
+        if (calibStep) {
+          this.input.cancelStickCalibration();
+        } else {
+          this.input.startStickCalibration();
+        }
+      },
+    });
+
+    const invXBtn = calibBtnX + calibBtnW + 10;
+    const invBtnW = 142;
     ctx.fillStyle = '#334155';
     ctx.beginPath();
-    ctx.roundRect(invXBtn, footerY, 168, 30, 8);
+    ctx.roundRect(invXBtn, footerY, invBtnW, 30, 8);
     ctx.fill();
     ctx.fillStyle = '#E2E8F0';
     ctx.font = '700 12px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(
-      `Invert Stick X: ${mapping.invertX ? 'ON' : 'OFF'}`,
-      invXBtn + 84,
+      `Invert X: ${mapping.invertX ? 'ON' : 'OFF'}`,
+      invXBtn + invBtnW / 2,
       footerY + 15
     );
     this.hitRegions.push({
       x: invXBtn,
       y: footerY,
-      w: 168,
+      w: invBtnW,
       h: 30,
       onDown: () => {
         this.input.saveMapping({ ...mapping, invertX: !mapping.invertX });
       },
     });
 
-    const invYBtn = mx + 204;
+    const invYBtn = invXBtn + invBtnW + 10;
     ctx.fillStyle = '#334155';
     ctx.beginPath();
-    ctx.roundRect(invYBtn, footerY, 168, 30, 8);
+    ctx.roundRect(invYBtn, footerY, invBtnW, 30, 8);
     ctx.fill();
     ctx.fillStyle = '#E2E8F0';
     ctx.fillText(
-      `Invert Stick Y: ${mapping.invertY ? 'ON' : 'OFF'}`,
-      invYBtn + 84,
+      `Invert Y: ${mapping.invertY ? 'ON' : 'OFF'}`,
+      invYBtn + invBtnW / 2,
       footerY + 15
     );
     this.hitRegions.push({
       x: invYBtn,
       y: footerY,
-      w: 168,
+      w: invBtnW,
       h: 30,
       onDown: () => {
         this.input.saveMapping({ ...mapping, invertY: !mapping.invertY });
       },
     });
 
-    const resetBtnX = mx + mw - 164;
+    const resetBtnX = mx + mw - 188;
     ctx.fillStyle = '#475569';
     ctx.beginPath();
-    ctx.roundRect(resetBtnX, footerY, 140, 30, 8);
+    ctx.roundRect(resetBtnX, footerY, 164, 30, 8);
     ctx.fill();
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText('Reset Defaults', resetBtnX + 70, footerY + 15);
+    ctx.fillText(
+      panelType === 'type1' ? 'Reset Type 1 Defaults' : 'Reset Type 2 Defaults',
+      resetBtnX + 82,
+      footerY + 15
+    );
     this.hitRegions.push({
       x: resetBtnX,
       y: footerY,
-      w: 140,
+      w: 164,
       h: 30,
       onDown: () => {
         this.input.resetMapping();

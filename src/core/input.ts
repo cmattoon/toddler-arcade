@@ -6,11 +6,28 @@ import {
   GameInput,
   GamepadButtonSlot,
   GamepadMappingConfig,
+  PanelType,
   PhysicalButton,
 } from './types';
 
-const STORAGE_KEY = 'toddler_arcade_gamepad_v2';
+const STORAGE_KEY = 'toddler_arcade_gamepad_v3';
 const AXIS_DEADZONE = 0.35;
+
+/** 12 physical buttons present on the Type 1 (EG STARTS) control panel */
+export const TYPE1_PHYSICAL_BUTTONS: PhysicalButton[] = [
+  'R1',
+  'G1',
+  'B1',
+  'Y1',
+  'ESC',
+  'OK',
+  'X1',
+  'X2',
+  'X3',
+  'X4',
+  'X5',
+  'X6',
+];
 
 export const ALL_PHYSICAL_BUTTONS: PhysicalButton[] = [
   'R1',
@@ -41,32 +58,87 @@ export const ALL_CABINET_BUTTONS: CabinetButton[] = [
 
 export const ALL_DIRECTIONS: Direction[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
-export function createDefaultMapping(): GamepadMappingConfig {
+/**
+ * Creates default USB HID button mappings for the chosen hardware panel profile:
+ *
+ * Type 1 — EG STARTS Zero Delay 12-Button USB Encoder (pad-agnostic B0..B11):
+ *   B0  -> Red            (R1 / RED)
+ *   B1  -> Green          (G1 / GREEN)
+ *   B2  -> Blue           (B1 / BLUE)
+ *   B3  -> Yellow         (Y1 / YELLOW)
+ *   B4  -> White Triangle (X3)
+ *   B5  -> White Star     (X5)
+ *   B6  -> White Heart    (X6)
+ *   B7  -> White Circle   (X2)
+ *   B8  -> OK / Enter     (OK)
+ *   B9  -> ESC / Back     (ESC)
+ *   B10 -> White Diamond  (X4)
+ *   B11 -> White Square   (X1)
+ *
+ * Type 2 — Expanded 16+ Button Dual-Row Colored Panel (for future 30-32 button board):
+ *   Adds independent R2, G2, B2, Y2 bottom colored row.
+ */
+export function createDefaultMapping(panelType: PanelType = 'type1'): GamepadMappingConfig {
+  if (panelType === 'type1') {
+    return {
+      panelType: 'type1',
+      buttons: {
+        R1: [0], // Red
+        G1: [1], // Green
+        B1: [2], // Blue
+        Y1: [3], // Yellow
+        X3: [4], // White · Triangle
+        X5: [5], // White · Star
+        X6: [6], // White · Heart
+        X2: [7], // White · Circle
+        OK: [8], // OK (Enter)
+        ESC: [9], // ESC (Back)
+        X4: [10], // White · Diamond
+        X1: [11], // White · Square
+        R2: [],
+        G2: [],
+        B2: [],
+        Y2: [],
+        RED: [],
+        GREEN: [],
+        BLUE: [],
+        YELLOW: [],
+      },
+      stickPadIndex: undefined,
+      stickPadLocked: false,
+      axisXIndex: 0,
+      axisYIndex: 1,
+      invertX: false,
+      invertY: false,
+    };
+  }
+
   return {
-    // Supports single or dual USB encoders (e.g., two EG STARTS Zero Delay boards)
+    panelType: 'type2',
     buttons: {
-      R1: [{ pad: 0, button: 0 }],
-      G1: [{ pad: 0, button: 1 }],
-      B1: [{ pad: 0, button: 2 }],
-      Y1: [{ pad: 0, button: 3 }],
-      R2: [{ pad: 0, button: 4 }],
-      G2: [{ pad: 0, button: 5 }],
-      B2: [{ pad: 0, button: 6 }],
-      Y2: [{ pad: 0, button: 7 }],
-      ESC: [{ pad: 0, button: 8 }],
-      OK: [{ pad: 0, button: 9 }],
-      X1: [{ pad: 0, button: 10 }, { pad: 1, button: 0 }],
-      X2: [{ pad: 0, button: 11 }, { pad: 1, button: 1 }],
-      X3: [{ pad: 1, button: 2 }],
-      X4: [{ pad: 1, button: 3 }],
-      X5: [{ pad: 1, button: 4 }],
-      X6: [{ pad: 1, button: 5 }],
+      R1: [0],
+      G1: [1],
+      B1: [2],
+      Y1: [3],
+      R2: [4],
+      G2: [5],
+      B2: [6],
+      Y2: [7],
+      ESC: [8],
+      OK: [9],
+      X1: [10],
+      X2: [11],
+      X3: [12],
+      X4: [13],
+      X5: [14],
+      X6: [15],
       RED: [],
       GREEN: [],
       BLUE: [],
       YELLOW: [],
     },
-    stickPadIndex: 0,
+    stickPadIndex: undefined,
+    stickPadLocked: false,
     axisXIndex: 0,
     axisYIndex: 1,
     invertX: false,
@@ -153,8 +225,49 @@ export interface RawGamepadDebug {
   connected: boolean;
   count: number;
   id: string | null;
+  stickPad: number;
   pressedButtons: PressedPadButton[];
   axes: number[];
+  axesCompact: string;
+}
+
+export type StickCalibrationStep = 'RIGHT' | 'RELEASE' | 'DOWN' | null;
+
+/**
+ * Decodes Chromium's raw USB HID 8-way POV Hat Switch exposed on axes[9].
+ * In Chromium's Gamepad API (macOS RawInputDataFetcherMac & Linux hidraw),
+ * an 8-way hat switch rests at +1.2857 (9/7, or > 1.08) and encodes
+ * compass steps 0..7 (N, NE, E, SE, S, SW, W, NW) as (2 * step - 7) / 7 in [-1.0, +1.0].
+ */
+function decodeChromiumPovHat(val: number): { x: number; y: number } | null {
+  if (!Number.isFinite(val) || val < -1.06 || val > 1.06) {
+    return null;
+  }
+  const step = Math.round(((val + 1) * 7) / 2);
+  const expected = (2 * step - 7) / 7;
+  if (step < 0 || step > 7 || Math.abs(val - expected) > 0.08) {
+    return null;
+  }
+  switch (step) {
+    case 0:
+      return { x: 0, y: -1 }; // UP (N)
+    case 1:
+      return { x: 1, y: -1 }; // UP + RIGHT (NE)
+    case 2:
+      return { x: 1, y: 0 }; // RIGHT (E)
+    case 3:
+      return { x: 1, y: 1 }; // DOWN + RIGHT (SE)
+    case 4:
+      return { x: 0, y: 1 }; // DOWN (S)
+    case 5:
+      return { x: -1, y: 1 }; // DOWN + LEFT (SW)
+    case 6:
+      return { x: -1, y: 0 }; // LEFT (W)
+    case 7:
+      return { x: -1, y: -1 }; // UP + LEFT (NW)
+    default:
+      return null;
+  }
 }
 
 function makeButtonRecord(initial: boolean): Record<CabinetButton, boolean> {
@@ -173,6 +286,25 @@ export class InputManager {
   private latchedVirtualButtons = new Set<CabinetButton>();
   private virtualDirsDown = new Set<Direction>();
   private latchedVirtualDirs = new Set<Direction>();
+
+  /** Tracks initial resting axis values per pad so stuck virtual triggers (-1.0) don't false-fire */
+  private padInitialAxes = new Map<number, number[]>();
+  /** Tracks which `${padIndex}:${axisIndex}` channels have visibly changed since connection */
+  private padMovedAxes = new Set<string>();
+  /** Tracks pads whose axes[9] has been observed in neutral POV Hat state (> 1.08) */
+  private hatCapablePads = new Set<number>();
+
+  /** Interactive 2-step joystick calibration state ('RIGHT' -> 'RELEASE' -> 'DOWN') */
+  private stickCalibStep: StickCalibrationStep = null;
+  private stickCalibBaseline = new Map<number, number[]>();
+  private stickCalibButtonsBaseline: PressedPadButton[] = [];
+  private stickCalibCapturedX: {
+    pad: number;
+    axis?: number;
+    invertX?: boolean;
+    hat?: boolean;
+    rightBtn?: GamepadButtonSlot;
+  } | null = null;
 
   private prevButtons: Record<CabinetButton, boolean> = makeButtonRecord(false);
   private prevDirs: Record<Direction, boolean> = {
@@ -233,10 +365,16 @@ export class InputManager {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<GamepadMappingConfig>;
-        const def = createDefaultMapping();
+        const pType: PanelType = parsed.panelType === 'type2' ? 'type2' : 'type1';
+        const def = createDefaultMapping(pType);
+        const locked = parsed.stickPadLocked === true;
         return {
           ...def,
           ...parsed,
+          panelType: pType,
+          // Unlock legacy stickPadIndex: 0 so multi-controller setups read P1/P2 joysticks automatically!
+          stickPadLocked: locked,
+          stickPadIndex: locked ? parsed.stickPadIndex : undefined,
           buttons: {
             ...def.buttons,
             ...(parsed.buttons ?? {}),
@@ -246,7 +384,7 @@ export class InputManager {
     } catch {
       // Ignore corrupt storage
     }
-    return createDefaultMapping();
+    return createDefaultMapping('type1');
   }
 
   public saveMapping(next: GamepadMappingConfig): void {
@@ -258,12 +396,196 @@ export class InputManager {
     }
   }
 
+  public setPanelType(panelType: PanelType): void {
+    const fresh = createDefaultMapping(panelType);
+    fresh.invertX = this.mapping.invertX;
+    fresh.invertY = this.mapping.invertY;
+    this.saveMapping(fresh);
+  }
+
   public resetMapping(): void {
-    this.saveMapping(createDefaultMapping());
+    this.stickCalibStep = null;
+    this.saveMapping(createDefaultMapping(this.mapping.panelType));
   }
 
   public getMapping(): GamepadMappingConfig {
     return this.mapping;
+  }
+
+  public getStickCalibrationStep(): StickCalibrationStep {
+    return this.stickCalibStep;
+  }
+
+  public startStickCalibration(): void {
+    const connected = this.getConnectedGamepads();
+    this.stickCalibBaseline.clear();
+    this.stickCalibButtonsBaseline = [];
+    for (const { index, pad } of connected) {
+      this.stickCalibBaseline.set(index, [...pad.axes]);
+      pad.buttons.forEach((b, btnIdx) => {
+        if (b && (b.pressed || b.value > 0.5)) {
+          this.stickCalibButtonsBaseline.push({ pad: index, button: btnIdx });
+        }
+      });
+    }
+    this.stickCalibCapturedX = null;
+    this.stickCalibStep = 'RIGHT';
+  }
+
+  public cancelStickCalibration(): void {
+    this.stickCalibStep = null;
+    this.stickCalibCapturedX = null;
+  }
+
+  /**
+   * Advances interactive 2-step joystick calibration ('RIGHT' -> 'RELEASE' -> 'DOWN').
+   * Returns 'step' when advancing to DOWN, 'done' when finished, or null if waiting.
+   */
+  public updateStickCalibration(): 'step' | 'done' | null {
+    if (!this.stickCalibStep) return null;
+    const connected = this.getConnectedGamepads();
+    if (connected.length === 0) return null;
+
+    if (this.stickCalibStep === 'RIGHT') {
+      for (const { index, pad } of connected) {
+        const base = this.stickCalibBaseline.get(index) ?? pad.axes.map(() => 0);
+
+        // 1. Check POV Hat on axes[9]
+        if (pad.axes.length >= 10 && (this.hatCapablePads.has(index) || (base[9] ?? 0) > 1.08)) {
+          const hat = decodeChromiumPovHat(pad.axes[9]);
+          if (hat && Math.abs(hat.x) > 0.5) {
+            this.hatCapablePads.add(index);
+            this.saveMapping({
+              ...this.mapping,
+              stickPadIndex: index,
+              stickPadLocked: true,
+              invertX: hat.x < 0,
+              dirButtons: undefined,
+            });
+            this.stickCalibStep = null;
+            return 'done';
+          }
+        }
+
+        // 2. Check analog/digital axes 0..8 for strongest deflection from baseline
+        let bestAxis = -1;
+        let bestDelta = 0;
+        let bestVal = 0;
+        const maxAxis = Math.min(pad.axes.length, 9);
+        for (let a = 0; a < maxAxis; a++) {
+          const val = pad.axes[a] ?? 0;
+          const bVal = base[a] ?? 0;
+          const delta = val - bVal;
+          if (Math.abs(delta) > 0.45 && Math.abs(delta) > Math.abs(bestDelta)) {
+            bestAxis = a;
+            bestDelta = delta;
+            bestVal = val;
+          }
+        }
+        if (bestAxis >= 0) {
+          this.stickCalibCapturedX = {
+            pad: index,
+            axis: bestAxis,
+            invertX: bestVal < (base[bestAxis] ?? 0),
+          };
+          this.stickCalibStep = 'RELEASE';
+          return 'step';
+        }
+
+        // 3. Check if joystick switches are wired to gamepad buttons (e.g. D-pad 12..15)
+        for (let bIdx = 0; bIdx < pad.buttons.length; bIdx++) {
+          const b = pad.buttons[bIdx];
+          const wasDown = this.stickCalibButtonsBaseline.some(
+            (p) => p.pad === index && p.button === bIdx
+          );
+          if (b && (b.pressed || b.value > 0.5) && !wasDown) {
+            // Standard D-pad buttons 12..15 can all be inferred at once if standard
+            if (bIdx === 15 && pad.buttons.length >= 16) {
+              this.saveMapping({
+                ...this.mapping,
+                stickPadIndex: index,
+                stickPadLocked: true,
+                invertX: false,
+                invertY: false,
+                dirButtons: {
+                  UP: [{ pad: index, button: 12 }],
+                  DOWN: [{ pad: index, button: 13 }],
+                  LEFT: [{ pad: index, button: 14 }],
+                  RIGHT: [{ pad: index, button: 15 }],
+                },
+              });
+              this.stickCalibStep = null;
+              return 'done';
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    if (this.stickCalibStep === 'RELEASE') {
+      const cap = this.stickCalibCapturedX;
+      if (!cap || cap.axis === undefined) {
+        this.stickCalibStep = 'DOWN';
+        return null;
+      }
+      const target = connected.find((c) => c.index === cap.pad)?.pad;
+      const base = this.stickCalibBaseline.get(cap.pad) ?? [];
+      const curX = target?.axes[cap.axis] ?? 0;
+      if (Math.abs(curX - (base[cap.axis] ?? 0)) < 0.25) {
+        // Re-snapshot centered baseline before measuring DOWN
+        if (target) {
+          this.stickCalibBaseline.set(cap.pad, [...target.axes]);
+        }
+        this.stickCalibStep = 'DOWN';
+      }
+      return null;
+    }
+
+    if (this.stickCalibStep === 'DOWN') {
+      const cap = this.stickCalibCapturedX;
+      if (!cap) {
+        this.stickCalibStep = null;
+        return null;
+      }
+      const target = connected.find((c) => c.index === cap.pad)?.pad;
+      if (!target) return null;
+      const base = this.stickCalibBaseline.get(cap.pad) ?? target.axes.map(() => 0);
+
+      let bestAxis = -1;
+      let bestDelta = 0;
+      let bestVal = 0;
+      const maxAxis = Math.min(target.axes.length, 9);
+      for (let a = 0; a < maxAxis; a++) {
+        if (a === cap.axis) continue;
+        const val = target.axes[a] ?? 0;
+        const bVal = base[a] ?? 0;
+        const delta = val - bVal;
+        if (Math.abs(delta) > 0.45 && Math.abs(delta) > Math.abs(bestDelta)) {
+          bestAxis = a;
+          bestDelta = delta;
+          bestVal = val;
+        }
+      }
+
+      if (bestAxis >= 0 && cap.axis !== undefined) {
+        this.saveMapping({
+          ...this.mapping,
+          stickPadIndex: cap.pad,
+          stickPadLocked: true,
+          axisXIndex: cap.axis,
+          axisYIndex: bestAxis,
+          invertX: !!cap.invertX,
+          invertY: bestVal < (base[bestAxis] ?? 0),
+          dirButtons: undefined,
+        });
+        this.stickCalibStep = null;
+        this.stickCalibCapturedX = null;
+        return 'done';
+      }
+    }
+
+    return null;
   }
 
   public setVirtualButton(button: CabinetButton, down: boolean): void {
@@ -299,15 +621,106 @@ export class InputManager {
       const p = pads[i];
       if (p && p.connected) {
         out.push({ index: i, pad: p });
+        this.trackPadBaselines(i, p);
       }
     }
     return out;
   }
 
+  private trackPadBaselines(index: number, pad: Gamepad): void {
+    if (!this.padInitialAxes.has(index)) {
+      this.padInitialAxes.set(index, [...pad.axes]);
+    }
+    const init = this.padInitialAxes.get(index)!;
+    for (let a = 0; a < pad.axes.length; a++) {
+      const v = pad.axes[a] ?? 0;
+      if (init[a] === undefined) init[a] = v;
+      if (Math.abs(v - init[a]) > 0.3) {
+        this.padMovedAxes.add(`${index}:${a}`);
+      }
+    }
+    if (pad.axes.length >= 10 && (pad.axes[9] ?? 0) > 1.08) {
+      this.hatCapablePads.add(index);
+    }
+  }
+
+  /** Infers which gamepad index corresponds to the arcade encoder for debug display */
+  private inferPrimaryArcadePad(connected: Array<{ index: number; pad: Gamepad }>): {
+    index: number;
+    pad: Gamepad;
+  } {
+    // 1. Prefer explicitly calibrated stick pad if connected
+    if (this.mapping.stickPadLocked && this.mapping.stickPadIndex !== undefined) {
+      const locked = connected.find((c) => c.index === this.mapping.stickPadIndex);
+      if (locked) return locked;
+    }
+
+    // 2. Prefer any pad currently showing active stick deflection or button press
+    for (const c of connected) {
+      const hasBtn = c.pad.buttons.some((b) => b && (b.pressed || b.value > 0.5));
+      if (hasBtn) return c;
+      if (this.hatCapablePads.has(c.index) && decodeChromiumPovHat(c.pad.axes[9] ?? 9)) {
+        return c;
+      }
+      const x = this.readSafeAxis(c.index, c.pad, this.mapping.axisXIndex);
+      const y = this.readSafeAxis(c.index, c.pad, this.mapping.axisYIndex);
+      if (Math.abs(x) > AXIS_DEADZONE || Math.abs(y) > AXIS_DEADZONE) {
+        return c;
+      }
+    }
+
+    // 3. Prefer the pad index referenced by remapped arcade buttons (e.g. P2 in multi-pad setups)
+    const padCounts = new Map<number, number>();
+    for (const cabBtn of ALL_PHYSICAL_BUTTONS) {
+      for (const slot of this.mapping.buttons[cabBtn] ?? []) {
+        if (typeof slot === 'object' && slot !== null) {
+          padCounts.set(slot.pad, (padCounts.get(slot.pad) ?? 0) + 1);
+        }
+      }
+    }
+    let bestPadIdx = -1;
+    let bestCount = 0;
+    for (const [pIdx, cnt] of padCounts.entries()) {
+      if (cnt > bestCount && connected.some((c) => c.index === pIdx)) {
+        bestPadIdx = pIdx;
+        bestCount = cnt;
+      }
+    }
+    if (bestPadIdx >= 0) {
+      return connected.find((c) => c.index === bestPadIdx)!;
+    }
+
+    // 4. Prefer a USB joystick/encoder over virtual drivers if present
+    const nonVirtual = connected.find((c) => !/virtual/i.test(c.pad.id));
+    return nonVirtual ?? connected[0];
+  }
+
+  /**
+   * Reads an axis while ignoring unmoved axes that started stuck away from zero
+   * (such as idle analog triggers resting at -1.0 on virtual/flight controllers).
+   */
+  private readSafeAxis(padIndex: number, pad: Gamepad, axisIndex: number): number {
+    const val = pad.axes[axisIndex];
+    if (val === undefined || !Number.isFinite(val)) return 0;
+    const init = this.padInitialAxes.get(padIndex)?.[axisIndex] ?? 0;
+    if (Math.abs(init) > 0.5 && !this.padMovedAxes.has(`${padIndex}:${axisIndex}`)) {
+      return 0;
+    }
+    return val;
+  }
+
   public getRawGamepadDebug(): RawGamepadDebug {
     const connected = this.getConnectedGamepads();
     if (connected.length === 0) {
-      return { connected: false, count: 0, id: null, pressedButtons: [], axes: [] };
+      return {
+        connected: false,
+        count: 0,
+        id: null,
+        stickPad: 0,
+        pressedButtons: [],
+        axes: [],
+        axesCompact: 'none',
+      };
     }
     const pressedButtons: PressedPadButton[] = [];
     for (const { index, pad } of connected) {
@@ -317,36 +730,67 @@ export class InputManager {
         }
       });
     }
-    const stickPad =
-      connected.find((c) => c.index === (this.mapping.stickPadIndex ?? 0))?.pad ??
-      connected[0].pad;
+    const primary = this.inferPrimaryArcadePad(connected);
+    const axes = primary.pad.axes.map((a) => Number(a.toFixed(2)));
+
+    // Build concise summary showing configured X/Y plus any moving extra axis or POV Hat
+    const parts: string[] = [];
+    const xIdx = this.mapping.axisXIndex;
+    const yIdx = this.mapping.axisYIndex;
+    if (axes[xIdx] !== undefined) parts.push(`A${xIdx}:${axes[xIdx].toFixed(2)}`);
+    if (axes[yIdx] !== undefined && yIdx !== xIdx) parts.push(`A${yIdx}:${axes[yIdx].toFixed(2)}`);
+    for (let a = 0; a < axes.length; a++) {
+      if (a === xIdx || a === yIdx) continue;
+      if (a === 9 && this.hatCapablePads.has(primary.index)) {
+        const hat = decodeChromiumPovHat(primary.pad.axes[9]);
+        if (hat) parts.push(`Hat:[${hat.x},${hat.y}]`);
+        continue;
+      }
+      if (this.padMovedAxes.has(`${primary.index}:${a}`) && Math.abs(axes[a]) > 0.25) {
+        parts.push(`A${a}:${axes[a].toFixed(2)}`);
+      }
+    }
+
     return {
       connected: true,
       count: connected.length,
-      id: connected.map((c) => `#${c.index}:${c.pad.id.slice(0, 24)}`).join(' + '),
+      id: connected.map((c) => `#${c.index}:${c.pad.id.slice(0, 22)}`).join(' + '),
+      stickPad: primary.index,
       pressedButtons,
-      axes: stickPad.axes.map((a) => Number(a.toFixed(2))),
+      axes,
+      axesCompact: parts.join(', ') || '0, 0',
     };
   }
 
   private isSlotPressed(
     slot: GamepadButtonSlot,
     padMap: Map<number, Gamepad>,
-    firstPad: Gamepad | undefined
+    connected: Array<{ index: number; pad: Gamepad }>
   ): boolean {
     if (typeof slot === 'number') {
-      const b = firstPad?.buttons[slot];
-      return !!(b && (b.pressed || b.value > 0.5));
+      // Pad-agnostic slot: works on whichever USB port/index the arcade encoder enumerates at!
+      for (const { pad } of connected) {
+        const b = pad.buttons[slot];
+        if (b && (b.pressed || b.value > 0.5)) return true;
+      }
+      return false;
     }
     const target = padMap.get(slot.pad);
-    const b = target?.buttons[slot.button];
-    return !!(b && (b.pressed || b.value > 0.5));
+    if (target) {
+      const b = target.buttons[slot.button];
+      return !!(b && (b.pressed || b.value > 0.5));
+    }
+    // Fallback if another USB controller was unplugged and shifted gamepad indices
+    for (const { pad } of connected) {
+      const b = pad.buttons[slot.button];
+      if (b && (b.pressed || b.value > 0.5)) return true;
+    }
+    return false;
   }
 
   public poll(): CabinetSnapshot {
     const connected = this.getConnectedGamepads();
     const padMap = new Map<number, Gamepad>(connected.map((c) => [c.index, c.pad]));
-    const firstPad = connected[0]?.pad;
 
     const buttonDown = makeButtonRecord(false);
     const dirDown: Record<Direction, boolean> = {
@@ -395,42 +839,96 @@ export class InputManager {
       for (const cabBtn of ALL_CABINET_BUTTONS) {
         const slots = this.mapping.buttons[cabBtn] ?? [];
         for (const slot of slots) {
-          if (this.isSlotPressed(slot, padMap, firstPad)) {
+          if (this.isSlotPressed(slot, padMap, connected)) {
             buttonDown[cabBtn] = true;
           }
         }
       }
 
-      // Read joystick axes from stickPadIndex (or any pad deflecting past deadzone)
+      // Check optional button-mapped joystick directions
+      if (this.mapping.dirButtons) {
+        for (const dir of ALL_DIRECTIONS) {
+          for (const slot of this.mapping.dirButtons[dir] ?? []) {
+            if (this.isSlotPressed(slot, padMap, connected)) {
+              dirDown[dir] = true;
+            }
+          }
+        }
+      }
+
+      const lockToSinglePad =
+        this.mapping.stickPadLocked === true &&
+        this.mapping.stickPadIndex !== undefined &&
+        padMap.has(this.mapping.stickPadIndex);
+
+      // Poll joystick across ALL connected gamepads (or the calibrated stickPadIndex if locked)
       for (const { index, pad } of connected) {
-        if (this.mapping.stickPadIndex !== undefined && connected.length > 1 && index !== this.mapping.stickPadIndex) {
-          // Still check D-pad buttons 12..15 across pads
+        // Standard 16+ button D-pad (buttons 12..15) — note: 12-btn encoders only have 0..11
+        if (pad.mapping === 'standard' || pad.buttons.length >= 16) {
           if (pad.buttons[12]?.pressed) dirDown.UP = true;
           if (pad.buttons[13]?.pressed) dirDown.DOWN = true;
           if (pad.buttons[14]?.pressed) dirDown.LEFT = true;
           if (pad.buttons[15]?.pressed) dirDown.RIGHT = true;
+        }
+
+        if (lockToSinglePad && index !== this.mapping.stickPadIndex) {
           continue;
         }
-        const rawX = pad.axes[this.mapping.axisXIndex] ?? 0;
-        const rawY = pad.axes[this.mapping.axisYIndex] ?? 0;
-        const adjX = this.mapping.invertX ? -rawX : rawX;
-        const adjY = this.mapping.invertY ? -rawY : rawY;
 
-        if (Math.abs(adjX) > AXIS_DEADZONE) {
+        // A) Configured X/Y axes (defaults to axes[0] & axes[1])
+        let padX = this.readSafeAxis(index, pad, this.mapping.axisXIndex);
+        let padY = this.readSafeAxis(index, pad, this.mapping.axisYIndex);
+
+        // B) Secondary raw HID encoder axis pairs (e.g. Z/Rz on axes[2]/axes[5] or axes[2]/axes[3] when MODE toggled)
+        if (
+          !this.mapping.stickPadLocked &&
+          pad.mapping === '' &&
+          Math.abs(padX) <= AXIS_DEADZONE &&
+          Math.abs(padY) <= AXIS_DEADZONE
+        ) {
+          const altPairs: Array<[number, number]> = [
+            [2, 5],
+            [2, 3],
+            [3, 4],
+          ];
+          for (const [ax, ay] of altPairs) {
+            const cx = this.padMovedAxes.has(`${index}:${ax}`) ? (pad.axes[ax] ?? 0) : 0;
+            const cy = this.padMovedAxes.has(`${index}:${ay}`) ? (pad.axes[ay] ?? 0) : 0;
+            if (Math.abs(cx) > AXIS_DEADZONE || Math.abs(cy) > AXIS_DEADZONE) {
+              padX = cx;
+              padY = cy;
+              break;
+            }
+          }
+        }
+
+        // C) Chromium 8-way USB HID POV Hat Switch on axes[9] (very common on Generic USB Joystick 0079:0006!)
+        if (
+          pad.axes.length >= 10 &&
+          this.hatCapablePads.has(index) &&
+          Math.abs(padX) <= AXIS_DEADZONE &&
+          Math.abs(padY) <= AXIS_DEADZONE
+        ) {
+          const hat = decodeChromiumPovHat(pad.axes[9]);
+          if (hat) {
+            padX = hat.x;
+            padY = hat.y;
+          }
+        }
+
+        const adjX = this.mapping.invertX ? -padX : padX;
+        const adjY = this.mapping.invertY ? -padY : padY;
+
+        if (Math.abs(adjX) > AXIS_DEADZONE && Math.abs(adjX) >= Math.abs(axisX)) {
           axisX = adjX;
           if (adjX < -AXIS_DEADZONE) dirDown.LEFT = true;
           if (adjX > AXIS_DEADZONE) dirDown.RIGHT = true;
         }
-        if (Math.abs(adjY) > AXIS_DEADZONE) {
+        if (Math.abs(adjY) > AXIS_DEADZONE && Math.abs(adjY) >= Math.abs(axisY)) {
           axisY = adjY;
           if (adjY < -AXIS_DEADZONE) dirDown.UP = true;
           if (adjY > AXIS_DEADZONE) dirDown.DOWN = true;
         }
-
-        if (pad.buttons[12]?.pressed) dirDown.UP = true;
-        if (pad.buttons[13]?.pressed) dirDown.DOWN = true;
-        if (pad.buttons[14]?.pressed) dirDown.LEFT = true;
-        if (pad.buttons[15]?.pressed) dirDown.RIGHT = true;
       }
     }
 

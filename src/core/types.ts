@@ -175,14 +175,42 @@ export interface ArcadeGameDefinition<Action extends string = string> {
   create(context: GameContext): ArcadeGameInstance<Action>;
 }
 
+/**
+ * Hardware control panel layout profile:
+ * - 'type1': EG STARTS 12-button USB encoder — 3x2 White Shapes + ESC/OK + Joystick + 4 Colored Buttons
+ * - 'type2': Expanded 16+ button encoder — 3x2 White Shapes + ESC/OK + Joystick + 2x4 Dual-Row Colored Buttons
+ */
+export type PanelType = 'type1' | 'type2';
+
+/** Standard silkscreen header labels on the EG STARTS Zero Delay 12-button USB Encoder PCB (buttons 0..11) */
+export const EG_STARTS_SILKSCREEN: Record<number, string> = {
+  0: 'K1',
+  1: 'K2',
+  2: 'K3',
+  3: 'K4',
+  4: 'L1',
+  5: 'R1',
+  6: 'L2',
+  7: 'R2',
+  8: 'SE',
+  9: 'ST',
+  10: 'K11',
+  11: 'K12',
+};
+
 /** Supports either a button index on any connected gamepad (`number`) or a specific `(pad, button)` pair for dual-encoder builds */
 export type GamepadButtonSlot = number | { pad: number; button: number };
 
 export interface GamepadMappingConfig {
+  /** Which physical button panel hardware layout is installed */
+  panelType: PanelType;
   /** Maps each physical/logical cabinet button to one or more USB encoder button slots */
   buttons: Record<CabinetButton, GamepadButtonSlot[]>;
-  /** Gamepad index for the joystick (default 0) */
+  /** Optional button-based D-pad/joystick mappings (when joystick switches report as buttons) */
+  dirButtons?: Partial<Record<Direction, GamepadButtonSlot[]>>;
+  /** Optional locked gamepad index for the joystick; when stickPadLocked is false/omitted, polls all connected gamepads! */
   stickPadIndex?: number;
+  stickPadLocked?: boolean;
   /** Axis index for horizontal stick (usually 0 on EG STARTS Zero Delay encoder) */
   axisXIndex: number;
   /** Axis index for vertical stick (usually 1 on EG STARTS Zero Delay encoder) */

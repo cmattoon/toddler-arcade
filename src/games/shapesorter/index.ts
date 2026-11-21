@@ -2,16 +2,16 @@
  * Contributor Specification (per toddler-arcade-developmental-guide.md):
  *
  * world: block-workshop
- * activity: unified-add-take-and-topple-stacking
+ * activity: one-to-one-stacking-and-topple
  * primary_tags: [F1, F2]
- * secondary_tags: [A1, F3]
+ * secondary_tags: [A1, B2]
  * concept:
- *   - Top row (+) adds 1 shaped wooden block per press (F1 one-to-one correspondence) up to 5 blocks, and knocks the tower over joyfully when > 5!
- *   - Bottom row (-) removes 1 block per press (F2 reversible quantity comparison across taller, shorter, and equal stacks).
- *   - White shape buttons (X1..X6) stamp geometric shapes onto blocks.
- * child_action: "Press top colored buttons (+) to stack blocks (toppling at > 5), bottom colored buttons (-) to take blocks away, and white shape buttons to pick stamps."
- * complexity_step: "Toddlers can freely stack and topple towers (A1/F1), while older children compare heights and adjust quantities with +/- (F2)."
- * not_complexity: "No intermediate mode menus, timers, or error buzzers."
+ *   - Pressing any of the 4 colored buttons (Red, Green, Blue, Yellow) drops 1 shaped wooden block onto that peg (F1 one-to-one correspondence) up to 5 blocks, and knocks the tower over joyfully when > 5!
+ *   - Pressing any of the 6 white shape buttons (X1..X6) selects the geometric stamp applied to blocks (B2).
+ *   - Children can compare taller, shorter, and equal stacks (F2) using visual height and 1-to-1 dot tallies (0..5).
+ * child_action: "Press the 4 colored buttons to stack blocks (toppling when > 5), press the 6 white shape buttons to pick stamps, or press OK to clear the workbench."
+ * complexity_step: "Toddlers freely stack and topple towers (A1/F1), while older children build specific heights or equal towers across pegs (F2)."
+ * not_complexity: "No timers or error buzzers."
  * feedback: "Blocks drop physically onto pegs with rising wooden clacks, show 1-to-1 dot tallies (0..5), and topple playfully when > 5."
  * real_world_extension: "Stack 5 real wooden blocks together, compare taller vs shorter towers, and knock them over!"
  */
@@ -29,7 +29,6 @@ import {
   SHAPE_BUTTON_META,
   ShapeButton,
   ShapeKind,
-  SplitColorButton,
 } from '../../core/types';
 
 type StackerAction = 'pegRed' | 'pegGreen' | 'pegBlue' | 'pegYellow';
@@ -55,33 +54,18 @@ interface TumblingBlock {
 
 interface PegColumn {
   color: MergedColorButton;
-  topBtn: SplitColorButton;
-  bottomBtn: SplitColorButton;
   blocks: WoodenBlock[];
   wiggleTimer: number;
 }
 
 const MAX_STANDING_BLOCKS = 5;
 
-const PEG_SPECS: Array<{
-  color: MergedColorButton;
-  topBtn: SplitColorButton;
-  bottomBtn: SplitColorButton;
-}> = [
-  { color: 'RED', topBtn: 'R1', bottomBtn: 'R2' },
-  { color: 'GREEN', topBtn: 'G1', bottomBtn: 'G2' },
-  { color: 'BLUE', topBtn: 'B1', bottomBtn: 'B2' },
-  { color: 'YELLOW', topBtn: 'Y1', bottomBtn: 'Y2' },
-];
-
 class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
   private audio: GameContext['audio'];
   private time = 0;
 
-  private pegs: PegColumn[] = PEG_SPECS.map((s) => ({
-    color: s.color,
-    topBtn: s.topBtn,
-    bottomBtn: s.bottomBtn,
+  private pegs: PegColumn[] = CABINET_COLOR_COLUMNS.map((color) => ({
+    color,
     blocks: [],
     wiggleTimer: 0,
   }));
@@ -102,22 +86,12 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
 
   public getDeckOverride(): DeckVisualOverride {
     return {
-      colorMode: 'split8',
+      colorMode: 'merged4',
       columnLabels: {
-        RED: 'Red +/-',
-        GREEN: 'Green +/-',
-        BLUE: 'Blue +/-',
-        YELLOW: 'Yellow +/-',
-      },
-      splitIcons: {
-        R1: 'plus',
-        G1: 'plus',
-        B1: 'plus',
-        Y1: 'plus',
-        R2: 'minus',
-        G2: 'minus',
-        B2: 'minus',
-        Y2: 'minus',
+        RED: 'Red Peg',
+        GREEN: 'Green Peg',
+        BLUE: 'Blue Peg',
+        YELLOW: 'Yellow Peg',
       },
       shapesActive: true,
       selectedShape: this.selectedShapeBtn,
@@ -128,18 +102,14 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
     return [];
   }
 
-  public onPointerDown(x: number, y: number, width: number, height: number): void {
+  public onPointerDown(x: number, y: number, width: number): void {
     const availW = Math.min(width - 120, 980);
     const spacing = availW / 4;
     const startX = width / 2 - spacing * 1.5;
     for (let i = 0; i < 4; i++) {
       const cx = startX + i * spacing;
       if (Math.abs(x - cx) < spacing * 0.44 && y > 60) {
-        if (y > height * 0.78) {
-          this.removeBlockFromPeg(i);
-        } else {
-          this.addBlockToPeg(i);
-        }
+        this.addBlockToPeg(i);
         return;
       }
     }
@@ -148,7 +118,7 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
   public update(dt: number, input: GameInput<StackerAction>): void {
     this.time += dt;
 
-    // 1. White Shape Buttons (X1..X6) select the active Wooden Stamper shape
+    // 1. 6 White Shape Buttons (X1..X6) select the active Wooden Stamper shape
     SHAPE_BUTTON_LIST.forEach((sBtn, idx) => {
       if (input.justPressedButton(sBtn)) {
         this.selectedShapeBtn = sBtn;
@@ -156,13 +126,11 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
       }
     });
 
-    // 2. Split Colored Buttons: Top row (+) adds 1 block (toppling when > 5), Bottom row (-) removes 1 block
-    this.pegs.forEach((peg, idx) => {
-      if (input.justPressedButton(peg.topBtn)) {
+    // 2. 4 Colored Buttons (RED, GREEN, BLUE, YELLOW) stack 1 block per press, knocking over when > 5!
+    const acts: StackerAction[] = ['pegRed', 'pegGreen', 'pegBlue', 'pegYellow'];
+    acts.forEach((act, idx) => {
+      if (input.justPressed(act)) {
         this.addBlockToPeg(idx);
-      }
-      if (input.justPressedButton(peg.bottomBtn)) {
-        this.removeBlockFromPeg(idx);
       }
     });
 
@@ -170,7 +138,11 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
     if (input.justPressedButton('OK')) {
       const hadBlocks = this.pegs.some((p) => p.blocks.length > 0);
       if (hadBlocks) {
-        this.pegs.forEach((_, idx) => this.knockOverPeg(idx));
+        this.pegs.forEach((_, idx) => {
+          if (this.pegs[idx].blocks.length > 0) {
+            this.knockOverPeg(idx);
+          }
+        });
         this.audio.playStageComplete(false);
       }
     }
@@ -206,7 +178,7 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
 
     const shape = SHAPE_BUTTON_META[this.selectedShapeBtn].shape;
 
-    // When stack would exceed 5 (> 5), adding the 6th block knocks the whole tower over!
+    // When stack exceeds 5 (> 5), adding the 6th block knocks the whole tower over!
     if (peg.blocks.length >= MAX_STANDING_BLOCKS) {
       peg.blocks.push({
         color: peg.color,
@@ -229,39 +201,12 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
     this.audio.playWoodBlockClack(peg.blocks.length - 1, false);
   }
 
-  private removeBlockFromPeg(pegIdx: number): void {
-    const peg = this.pegs[pegIdx];
-    if (!peg) return;
-    if (peg.blocks.length === 0) {
-      peg.wiggleTimer = 0.3;
-      this.audio.playGentleWoodKnock();
-      return;
-    }
-
-    const topIdx = peg.blocks.length - 1;
-    const removed = peg.blocks.pop()!;
-    const normX = 0.2 + pegIdx * 0.2;
-    this.tumbling.push({
-      x: normX * 1280,
-      y: 360 - topIdx * 50,
-      vx: (Math.random() - 0.5) * 190,
-      vy: -230,
-      rot: 0,
-      vrot: (Math.random() - 0.5) * 6,
-      color: removed.color,
-      shape: removed.shape,
-      age: 0,
-    });
-    this.audio.playWoodBlockClack(peg.blocks.length, true);
-  }
-
   private knockOverPeg(pegIdx: number): void {
     const peg = this.pegs[pegIdx];
     const normX = 0.2 + pegIdx * 0.2;
     const leanDir = Math.random() < 0.5 ? -1 : 1;
 
     peg.blocks.forEach((b, bIdx) => {
-      // Higher blocks tip farther sideways like a real falling wooden block tower!
       const heightFactor = bIdx + 1;
       this.tumbling.push({
         x: normX * 1280 + leanDir * bIdx * 6,
@@ -282,7 +227,6 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
   public render(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const benchY = Math.round(height * 0.8);
 
-    // Sunlit playroom wall & wooden workbench
     const wall = ctx.createLinearGradient(0, 0, 0, benchY);
     wall.addColorStop(0, '#FFF8E1');
     wall.addColorStop(1, '#FFECB3');
@@ -329,7 +273,7 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
       const wiggle = peg.wiggleTimer > 0 ? Math.sin(this.time * 36) * 6 : 0;
       const cx = startX + idx * spacing + wiggle;
 
-      // Wooden peg dowel sized cleanly for 5 blocks (6th tips off the top!)
+      // Wooden peg dowel sized for 5 blocks
       ctx.fillStyle = '#A1887F';
       ctx.strokeStyle = '#6D4C41';
       ctx.lineWidth = 2.5;
@@ -347,7 +291,6 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
       ctx.fill();
       ctx.stroke();
 
-      // Stacked Wooden Blocks (1..5; subtle wobble at 5 hinting it's at full height!)
       const atMaxWobble =
         peg.blocks.length === MAX_STANDING_BLOCKS ? Math.sin(this.time * 9 + idx) * 2.2 : 0;
 
@@ -383,7 +326,7 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
         );
       });
 
-      // 5 Dot Pips + Numeral Badge along workbench front
+      // 5 Dot Pips + Count Badge along workbench front
       const count = peg.blocks.length;
       const badgeY = benchY + Math.min(44, (height - benchY) * 0.52);
 
@@ -410,7 +353,6 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
       ctx.fillText(String(count), cx, badgeY + 15);
     });
 
-    // Tumbling blocks when towers knock over (> 5) or blocks are removed (-)
     for (const tb of this.tumbling) {
       const pal = CABINET_COLOR_PALETTE[tb.color];
       ctx.save();
@@ -440,18 +382,18 @@ class BlockStackerGame implements ArcadeGameInstance<StackerAction> {
 export const shapeStackerGameDefinition: ArcadeGameDefinition<StackerAction> = {
   id: 'block-stacker',
   title: 'Block Stacker',
-  subtitle: 'Add (+) & take (-) blocks — topples over 5!',
+  subtitle: 'Stack shaped wooden blocks — topples over 5!',
   accentColor: '#42A5F5',
   developmental: {
-    parentCategory: 'Early Math · +/-',
+    parentCategory: 'Shapes & Counting',
     primaryTags: ['F1', 'F2'],
-    secondaryTags: ['A1', 'F3'],
+    secondaryTags: ['A1', 'B2'],
   },
   controls: [
-    { action: 'pegRed', button: 'RED', label: 'Red +/-', icon: 'block' },
-    { action: 'pegGreen', button: 'GREEN', label: 'Green +/-', icon: 'block' },
-    { action: 'pegBlue', button: 'BLUE', label: 'Blue +/-', icon: 'block' },
-    { action: 'pegYellow', button: 'YELLOW', label: 'Yellow +/-', icon: 'block' },
+    { action: 'pegRed', button: 'RED', label: 'Red Peg', icon: 'block' },
+    { action: 'pegGreen', button: 'GREEN', label: 'Green Peg', icon: 'block' },
+    { action: 'pegBlue', button: 'BLUE', label: 'Blue Peg', icon: 'block' },
+    { action: 'pegYellow', button: 'YELLOW', label: 'Yellow Peg', icon: 'block' },
   ],
   renderCover(ctx, width, height, timeSec, selected) {
     const benchY = height * 0.82;
