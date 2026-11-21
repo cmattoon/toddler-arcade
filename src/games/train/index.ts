@@ -1773,6 +1773,11 @@ export const trainGameDefinition: ArcadeGameDefinition<TrainAction> = {
   title: 'Choo-Choo Train',
   subtitle: 'Drive through stations, cities & farms!',
   accentColor: '#E53935',
+  developmental: {
+    parentCategory: 'Motion & Space',
+    primaryTags: ['A1', 'C1'],
+    secondaryTags: ['D1'],
+  },
   controls: [
     { action: 'startEngine', button: 'GREEN', label: 'Engine', icon: 'engine' },
     { action: 'horn', button: 'YELLOW', label: 'Whistle', icon: 'horn' },

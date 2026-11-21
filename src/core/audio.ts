@@ -615,4 +615,220 @@ export class ArcadeAudio {
       osc.stop(t + 0.18);
     });
   }
+
+  /** Warm marimba / celesta / bell bloom note for Music & Bubble Garden */
+  public playMusicalBloom(freq: number, variant: 'warm' | 'bright' | 'bass' = 'warm'): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+
+    const mainOsc = ctx.createOscillator();
+    const overtoneOsc = ctx.createOscillator();
+    const mainGain = ctx.createGain();
+    const overtoneGain = ctx.createGain();
+
+    mainOsc.type = variant === 'bass' ? 'triangle' : 'sine';
+    overtoneOsc.type = 'triangle';
+
+    mainOsc.frequency.setValueAtTime(freq, now);
+    overtoneOsc.frequency.setValueAtTime(freq * (variant === 'bright' ? 2 : 3), now);
+
+    const dur = variant === 'bass' ? 0.55 : 0.48;
+    mainGain.gain.setValueAtTime(0.001, now);
+    mainGain.gain.linearRampToValueAtTime(0.28, now + 0.014);
+    mainGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    overtoneGain.gain.setValueAtTime(0.001, now);
+    overtoneGain.gain.linearRampToValueAtTime(variant === 'bright' ? 0.12 : 0.06, now + 0.01);
+    overtoneGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.55);
+
+    mainOsc.connect(mainGain);
+    overtoneOsc.connect(overtoneGain);
+    mainGain.connect(this.masterGain);
+    overtoneGain.connect(this.masterGain);
+
+    mainOsc.start(now);
+    overtoneOsc.start(now);
+    mainOsc.stop(now + dur + 0.03);
+    overtoneOsc.stop(now + dur + 0.03);
+  }
+
+  /** Gentle pentatonic sparkle chime for the 6 White Shape Buttons (X1..X6) */
+  public playShapeSparkle(shapeIndex: number): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const pentatonic = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+    const base = pentatonic[((shapeIndex % 6) + 6) % 6];
+    const now = ctx.currentTime;
+
+    [base, base * 1.5].forEach((f, idx) => {
+      const t = now + idx * 0.045;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(idx === 0 ? 0.2 : 0.11, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    });
+  }
+
+  /** Friendly door knock/open + synthesized animal voice for Peekaboo Doors */
+  public playAnimalDoorGreeting(
+    animal: 'puppy' | 'frog' | 'duck' | 'kitty',
+    alreadyOpen = false
+  ): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+
+    let vStart = now;
+    if (!alreadyOpen) {
+      // Soft wooden door latch pop before the animal greets
+      const latchOsc = ctx.createOscillator();
+      const latchGain = ctx.createGain();
+      latchOsc.type = 'triangle';
+      latchOsc.frequency.setValueAtTime(190, now);
+      latchOsc.frequency.exponentialRampToValueAtTime(340, now + 0.07);
+      latchGain.gain.setValueAtTime(0.18, now);
+      latchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      latchOsc.connect(latchGain);
+      latchGain.connect(this.masterGain);
+      latchOsc.start(now);
+      latchOsc.stop(now + 0.09);
+      vStart = now + 0.09;
+    }
+
+    if (animal === 'puppy') {
+      // Cheerful two-syllable "woof-woof!"
+      [0, 0.16].forEach((d, idx) => {
+        const t = vStart + d;
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const g = ctx.createGain();
+        osc.type = 'sawtooth';
+        const pitch = idx === 0 ? 250 : 290;
+        osc.frequency.setValueAtTime(pitch * 0.85, t);
+        osc.frequency.exponentialRampToValueAtTime(pitch * 1.25, t + 0.045);
+        osc.frequency.exponentialRampToValueAtTime(pitch * 0.72, t + 0.12);
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(680, t);
+        filter.Q.setValueAtTime(1.8, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.25, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.14);
+      });
+    } else if (animal === 'frog') {
+      // Musical bouncy "rib-bit!"
+      [0, 0.13].forEach((d, idx) => {
+        const t = vStart + d;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(idx === 0 ? 185 : 240, t);
+        osc.frequency.exponentialRampToValueAtTime(idx === 0 ? 310 : 470, t + 0.09);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.24, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.12);
+      });
+    } else if (animal === 'duck') {
+      // Friendly nasal "quack-quack!"
+      [0, 0.15].forEach((d) => {
+        const t = vStart + d;
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const g = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(370, t);
+        osc.frequency.exponentialRampToValueAtTime(300, t + 0.1);
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1150, t);
+        filter.Q.setValueAtTime(3.2, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.26, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.12);
+      });
+    } else {
+      // Sweet rising-and-falling "me-ow~"
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(520, vStart);
+      osc.frequency.exponentialRampToValueAtTime(760, vStart + 0.11);
+      osc.frequency.exponentialRampToValueAtTime(480, vStart + 0.32);
+      g.gain.setValueAtTime(0.001, vStart);
+      g.gain.linearRampToValueAtTime(0.22, vStart + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, vStart + 0.34);
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(vStart);
+      osc.stop(vStart + 0.36);
+    }
+  }
+
+  /** Soft wooden knock when opening an empty peekaboo door (non-punitive!) */
+  public playGentleWoodKnock(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    [0, 0.09].forEach((d, idx) => {
+      const t = now + d;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(idx === 0 ? 240 : 210, t);
+      osc.frequency.exponentialRampToValueAtTime(115, t + 0.055);
+      g.gain.setValueAtTime(0.22, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.065);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.075);
+    });
+  }
+
+  /** Satisfying wooden toy block clack (rising slightly with stack height, or sliding off on '-') */
+  public playWoodBlockClack(stackIndex: number, removing = false): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const scale = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25];
+    const freq = scale[Math.max(0, Math.min(scale.length - 1, stackIndex))];
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    if (removing) {
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + 0.11);
+    } else {
+      osc.frequency.setValueAtTime(freq * 0.78, now);
+      osc.frequency.exponentialRampToValueAtTime(freq, now + 0.04);
+    }
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.26, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.16);
+  }
 }

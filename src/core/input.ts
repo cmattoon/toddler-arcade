@@ -4,34 +4,69 @@ import {
   Direction,
   GameControlDescriptor,
   GameInput,
+  GamepadButtonSlot,
   GamepadMappingConfig,
+  PhysicalButton,
 } from './types';
 
-const STORAGE_KEY = 'toddler_arcade_gamepad_v1';
+const STORAGE_KEY = 'toddler_arcade_gamepad_v2';
 const AXIS_DEADZONE = 0.35;
 
-export const ALL_CABINET_BUTTONS: CabinetButton[] = [
-  'GREEN',
-  'YELLOW',
-  'RED',
-  'BLUE',
+export const ALL_PHYSICAL_BUTTONS: PhysicalButton[] = [
+  'R1',
+  'G1',
+  'B1',
+  'Y1',
+  'R2',
+  'G2',
+  'B2',
+  'Y2',
+  'X1',
+  'X2',
+  'X3',
+  'X4',
+  'X5',
+  'X6',
   'OK',
   'ESC',
+];
+
+export const ALL_CABINET_BUTTONS: CabinetButton[] = [
+  ...ALL_PHYSICAL_BUTTONS,
+  'RED',
+  'GREEN',
+  'BLUE',
+  'YELLOW',
 ];
 
 export const ALL_DIRECTIONS: Direction[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
 export function createDefaultMapping(): GamepadMappingConfig {
   return {
-    // Typical Zero Delay USB Encoder header defaults (K1..K4 = 0..3, Coin/1P = 8..11)
+    // Supports single or dual USB encoders (e.g., two EG STARTS Zero Delay boards)
     buttons: {
-      GREEN: [0],
-      YELLOW: [1],
-      RED: [2],
-      BLUE: [3],
-      OK: [9, 0], // 1-Player Start (or Green button) confirms in menu
-      ESC: [8, 6], // Coin / Select / Back button returns to menu
+      R1: [{ pad: 0, button: 0 }],
+      G1: [{ pad: 0, button: 1 }],
+      B1: [{ pad: 0, button: 2 }],
+      Y1: [{ pad: 0, button: 3 }],
+      R2: [{ pad: 0, button: 4 }],
+      G2: [{ pad: 0, button: 5 }],
+      B2: [{ pad: 0, button: 6 }],
+      Y2: [{ pad: 0, button: 7 }],
+      ESC: [{ pad: 0, button: 8 }],
+      OK: [{ pad: 0, button: 9 }],
+      X1: [{ pad: 0, button: 10 }, { pad: 1, button: 0 }],
+      X2: [{ pad: 0, button: 11 }, { pad: 1, button: 1 }],
+      X3: [{ pad: 1, button: 2 }],
+      X4: [{ pad: 1, button: 3 }],
+      X5: [{ pad: 1, button: 4 }],
+      X6: [{ pad: 1, button: 5 }],
+      RED: [],
+      GREEN: [],
+      BLUE: [],
+      YELLOW: [],
     },
+    stickPadIndex: 0,
     axisXIndex: 0,
     axisYIndex: 1,
     invertX: false,
@@ -39,44 +74,95 @@ export function createDefaultMapping(): GamepadMappingConfig {
   };
 }
 
+/**
+ * Keyboard layout mirroring the physical 3-cluster cabinet schematic:
+ * - Left 2x3 White Shapes (X1..X6): Q W E / A S D  (or 5 6 7 / 8 9 0)
+ * - Center System + Joystick:       Esc, Enter/Space, Arrow Keys
+ * - Right 2x4 Colored (R G B Y):    1 2 3 4 or U I O P or R G B Y (row 1), Z X C V or J K L ; (row 2)
+ */
 const KEYBOARD_MAP: Record<string, CabinetButton | Direction> = {
+  // Center Joystick
   ArrowUp: 'UP',
   ArrowDown: 'DOWN',
   ArrowLeft: 'LEFT',
   ArrowRight: 'RIGHT',
-  KeyW: 'UP',
-  KeyS: 'DOWN',
-  KeyA: 'LEFT',
-  KeyD: 'RIGHT',
 
-  Digit1: 'GREEN',
-  KeyZ: 'GREEN',
-  KeyG: 'GREEN',
-
-  Digit2: 'YELLOW',
-  KeyX: 'YELLOW',
-  KeyY: 'YELLOW',
-
-  Digit3: 'RED',
-  KeyC: 'RED',
-  KeyR: 'RED',
-
-  Digit4: 'BLUE',
-  KeyV: 'BLUE',
-  KeyB: 'BLUE',
-
+  // Center System Buttons
   Enter: 'OK',
   Space: 'OK',
-
   Escape: 'ESC',
   Backspace: 'ESC',
+
+  // Right Cluster — Top Row Colored (R1, G1, B1, Y1)
+  Digit1: 'R1',
+  KeyU: 'R1',
+  KeyR: 'R1',
+
+  Digit2: 'G1',
+  KeyI: 'G1',
+  KeyG: 'G1',
+
+  Digit3: 'B1',
+  KeyO: 'B1',
+  KeyB: 'B1',
+
+  Digit4: 'Y1',
+  KeyP: 'Y1',
+  KeyY: 'Y1',
+
+  // Right Cluster — Bottom Row Colored (R2, G2, B2, Y2)
+  KeyZ: 'R2',
+  KeyJ: 'R2',
+
+  KeyX: 'G2',
+  KeyK: 'G2',
+
+  KeyC: 'B2',
+  KeyL: 'B2',
+
+  KeyV: 'Y2',
+  Semicolon: 'Y2',
+
+  // Left Cluster — Top Row White Shapes (X1=Square, X2=Circle, X3=Triangle)
+  KeyQ: 'X1',
+  Digit5: 'X1',
+
+  KeyW: 'X2',
+  Digit6: 'X2',
+
+  KeyE: 'X3',
+  Digit7: 'X3',
+
+  // Left Cluster — Bottom Row White Shapes (X4=Diamond, X5=Star, X6=Heart)
+  KeyA: 'X4',
+  Digit8: 'X4',
+
+  KeyS: 'X5',
+  Digit9: 'X5',
+
+  KeyD: 'X6',
+  Digit0: 'X6',
 };
+
+export interface PressedPadButton {
+  pad: number;
+  button: number;
+}
 
 export interface RawGamepadDebug {
   connected: boolean;
+  count: number;
   id: string | null;
-  pressedButtons: number[];
+  pressedButtons: PressedPadButton[];
   axes: number[];
+}
+
+function makeButtonRecord(initial: boolean): Record<CabinetButton, boolean> {
+  const rec = {} as Record<CabinetButton, boolean>;
+  for (const b of ALL_CABINET_BUTTONS) {
+    rec[b] = initial;
+  }
+  return rec;
 }
 
 export class InputManager {
@@ -88,15 +174,7 @@ export class InputManager {
   private virtualDirsDown = new Set<Direction>();
   private latchedVirtualDirs = new Set<Direction>();
 
-  private prevButtons: Record<CabinetButton, boolean> = {
-    GREEN: false,
-    YELLOW: false,
-    RED: false,
-    BLUE: false,
-    OK: false,
-    ESC: false,
-  };
-
+  private prevButtons: Record<CabinetButton, boolean> = makeButtonRecord(false);
   private prevDirs: Record<Direction, boolean> = {
     UP: false,
     DOWN: false,
@@ -111,8 +189,6 @@ export class InputManager {
     this.lastSnapshot = this.createEmptySnapshot();
 
     window.addEventListener('keydown', (e) => {
-      // On macOS, holding Cmd/Ctrl suppresses keyup events for letter keys (e.g. Cmd+R),
-      // which would otherwise leave 'KeyR' stuck in keysDown! Clear held keys on modifiers.
       if (e.metaKey || e.ctrlKey || e.altKey || e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt') {
         this.keysDown.clear();
         return;
@@ -215,48 +291,64 @@ export class InputManager {
     this.latchedVirtualDirs.clear();
   }
 
-  private getActiveGamepad(): Gamepad | null {
-    if (!navigator.getGamepads) return null;
+  private getConnectedGamepads(): Array<{ index: number; pad: Gamepad }> {
+    if (!navigator.getGamepads) return [];
     const pads = navigator.getGamepads();
-    for (const pad of pads) {
-      if (pad && pad.connected) {
-        return pad;
+    const out: Array<{ index: number; pad: Gamepad }> = [];
+    for (let i = 0; i < pads.length; i++) {
+      const p = pads[i];
+      if (p && p.connected) {
+        out.push({ index: i, pad: p });
       }
     }
-    return null;
+    return out;
   }
 
   public getRawGamepadDebug(): RawGamepadDebug {
-    const pad = this.getActiveGamepad();
-    if (!pad) {
-      return { connected: false, id: null, pressedButtons: [], axes: [] };
+    const connected = this.getConnectedGamepads();
+    if (connected.length === 0) {
+      return { connected: false, count: 0, id: null, pressedButtons: [], axes: [] };
     }
-    const pressedButtons: number[] = [];
-    pad.buttons.forEach((b, idx) => {
-      if (b && (b.pressed || b.value > 0.5)) {
-        pressedButtons.push(idx);
-      }
-    });
+    const pressedButtons: PressedPadButton[] = [];
+    for (const { index, pad } of connected) {
+      pad.buttons.forEach((b, btnIdx) => {
+        if (b && (b.pressed || b.value > 0.5)) {
+          pressedButtons.push({ pad: index, button: btnIdx });
+        }
+      });
+    }
+    const stickPad =
+      connected.find((c) => c.index === (this.mapping.stickPadIndex ?? 0))?.pad ??
+      connected[0].pad;
     return {
       connected: true,
-      id: pad.id,
+      count: connected.length,
+      id: connected.map((c) => `#${c.index}:${c.pad.id.slice(0, 24)}`).join(' + '),
       pressedButtons,
-      axes: pad.axes.map((a) => Number(a.toFixed(2))),
+      axes: stickPad.axes.map((a) => Number(a.toFixed(2))),
     };
   }
 
+  private isSlotPressed(
+    slot: GamepadButtonSlot,
+    padMap: Map<number, Gamepad>,
+    firstPad: Gamepad | undefined
+  ): boolean {
+    if (typeof slot === 'number') {
+      const b = firstPad?.buttons[slot];
+      return !!(b && (b.pressed || b.value > 0.5));
+    }
+    const target = padMap.get(slot.pad);
+    const b = target?.buttons[slot.button];
+    return !!(b && (b.pressed || b.value > 0.5));
+  }
+
   public poll(): CabinetSnapshot {
-    const pad = this.getActiveGamepad();
+    const connected = this.getConnectedGamepads();
+    const padMap = new Map<number, Gamepad>(connected.map((c) => [c.index, c.pad]));
+    const firstPad = connected[0]?.pad;
 
-    const buttonDown: Record<CabinetButton, boolean> = {
-      GREEN: false,
-      YELLOW: false,
-      RED: false,
-      BLUE: false,
-      OK: false,
-      ESC: false,
-    };
-
+    const buttonDown = makeButtonRecord(false);
     const dirDown: Record<Direction, boolean> = {
       UP: false,
       DOWN: false,
@@ -267,7 +359,7 @@ export class InputManager {
     let axisX = 0;
     let axisY = 0;
 
-    // 1. Read keyboard (both currently held and sub-frame latched taps)
+    // 1. Read keyboard (currently held + sub-frame latched taps)
     const activeCodes = new Set<string>([...this.keysDown, ...this.latchedKeys]);
     this.latchedKeys.clear();
 
@@ -279,11 +371,6 @@ export class InputManager {
       } else {
         buttonDown[mapped] = true;
       }
-    }
-
-    // Also let Green button keyboard keys act as OK if needed by menu
-    if (activeCodes.has('Digit1') || activeCodes.has('KeyZ')) {
-      buttonDown.OK = true;
     }
 
     // 2. Read virtual touch/click controls
@@ -303,40 +390,56 @@ export class InputManager {
     }
     this.latchedVirtualDirs.clear();
 
-    // 3. Read USB HID Gamepad (EG STARTS / Zero Delay Encoder or standard controller)
-    if (pad) {
+    // 3. Read USB HID Gamepad(s)
+    if (connected.length > 0) {
       for (const cabBtn of ALL_CABINET_BUTTONS) {
-        const indices = this.mapping.buttons[cabBtn] ?? [];
-        for (const idx of indices) {
-          const gpBtn = pad.buttons[idx];
-          if (gpBtn && (gpBtn.pressed || gpBtn.value > 0.5)) {
+        const slots = this.mapping.buttons[cabBtn] ?? [];
+        for (const slot of slots) {
+          if (this.isSlotPressed(slot, padMap, firstPad)) {
             buttonDown[cabBtn] = true;
           }
         }
       }
 
-      const rawX = pad.axes[this.mapping.axisXIndex] ?? 0;
-      const rawY = pad.axes[this.mapping.axisYIndex] ?? 0;
-      const adjX = this.mapping.invertX ? -rawX : rawX;
-      const adjY = this.mapping.invertY ? -rawY : rawY;
+      // Read joystick axes from stickPadIndex (or any pad deflecting past deadzone)
+      for (const { index, pad } of connected) {
+        if (this.mapping.stickPadIndex !== undefined && connected.length > 1 && index !== this.mapping.stickPadIndex) {
+          // Still check D-pad buttons 12..15 across pads
+          if (pad.buttons[12]?.pressed) dirDown.UP = true;
+          if (pad.buttons[13]?.pressed) dirDown.DOWN = true;
+          if (pad.buttons[14]?.pressed) dirDown.LEFT = true;
+          if (pad.buttons[15]?.pressed) dirDown.RIGHT = true;
+          continue;
+        }
+        const rawX = pad.axes[this.mapping.axisXIndex] ?? 0;
+        const rawY = pad.axes[this.mapping.axisYIndex] ?? 0;
+        const adjX = this.mapping.invertX ? -rawX : rawX;
+        const adjY = this.mapping.invertY ? -rawY : rawY;
 
-      if (Math.abs(adjX) > AXIS_DEADZONE) {
-        axisX = adjX;
-        if (adjX < -AXIS_DEADZONE) dirDown.LEFT = true;
-        if (adjX > AXIS_DEADZONE) dirDown.RIGHT = true;
-      }
-      if (Math.abs(adjY) > AXIS_DEADZONE) {
-        axisY = adjY;
-        if (adjY < -AXIS_DEADZONE) dirDown.UP = true;
-        if (adjY > AXIS_DEADZONE) dirDown.DOWN = true;
-      }
+        if (Math.abs(adjX) > AXIS_DEADZONE) {
+          axisX = adjX;
+          if (adjX < -AXIS_DEADZONE) dirDown.LEFT = true;
+          if (adjX > AXIS_DEADZONE) dirDown.RIGHT = true;
+        }
+        if (Math.abs(adjY) > AXIS_DEADZONE) {
+          axisY = adjY;
+          if (adjY < -AXIS_DEADZONE) dirDown.UP = true;
+          if (adjY > AXIS_DEADZONE) dirDown.DOWN = true;
+        }
 
-      // Support D-pad buttons 12..15 (in case encoder MODE switched to D-pad buttons)
-      if (pad.buttons[12]?.pressed) dirDown.UP = true;
-      if (pad.buttons[13]?.pressed) dirDown.DOWN = true;
-      if (pad.buttons[14]?.pressed) dirDown.LEFT = true;
-      if (pad.buttons[15]?.pressed) dirDown.RIGHT = true;
+        if (pad.buttons[12]?.pressed) dirDown.UP = true;
+        if (pad.buttons[13]?.pressed) dirDown.DOWN = true;
+        if (pad.buttons[14]?.pressed) dirDown.LEFT = true;
+        if (pad.buttons[15]?.pressed) dirDown.RIGHT = true;
+      }
     }
+
+    // 4. Merge the 8 colored buttons into the 4 simple-mode color channels!
+    // Pressing EITHER R1 or R2 activates RED; G1 or G2 -> GREEN; B1 or B2 -> BLUE; Y1 or Y2 -> YELLOW.
+    if (buttonDown.R1 || buttonDown.R2) buttonDown.RED = true;
+    if (buttonDown.G1 || buttonDown.G2) buttonDown.GREEN = true;
+    if (buttonDown.B1 || buttonDown.B2) buttonDown.BLUE = true;
+    if (buttonDown.Y1 || buttonDown.Y2) buttonDown.YELLOW = true;
 
     // Synthesize normalized digital axis if keyboard/virtual D-pad was used
     if (axisX === 0) {
@@ -348,8 +451,8 @@ export class InputManager {
       else if (dirDown.DOWN && !dirDown.UP) axisY = 1;
     }
 
-    const buttonJustPressed = {} as Record<CabinetButton, boolean>;
-    const buttonJustReleased = {} as Record<CabinetButton, boolean>;
+    const buttonJustPressed = makeButtonRecord(false);
+    const buttonJustReleased = makeButtonRecord(false);
     for (const b of ALL_CABINET_BUTTONS) {
       buttonJustPressed[b] = buttonDown[b] && !this.prevButtons[b];
       buttonJustReleased[b] = !buttonDown[b] && this.prevButtons[b];
@@ -370,8 +473,9 @@ export class InputManager {
       buttonDown,
       buttonJustPressed,
       buttonJustReleased,
-      gamepadConnected: !!pad,
-      gamepadName: pad ? pad.id : null,
+      gamepadConnected: connected.length > 0,
+      gamepadCount: connected.length,
+      gamepadName: connected[0]?.pad.id ?? null,
     };
 
     return this.lastSnapshot;
@@ -398,6 +502,7 @@ export class InputManager {
       axisY: snapshot.axisY,
       dirDown: snapshot.dirDown,
       dirJustPressed: snapshot.dirJustPressed,
+      snapshot,
       isDown: (action: Action) => {
         const btns = actionToButtons.get(action);
         if (!btns) return false;
@@ -413,6 +518,8 @@ export class InputManager {
         if (!btns) return false;
         return btns.some((b) => snapshot.buttonJustReleased[b]);
       },
+      isButtonDown: (button: CabinetButton) => snapshot.buttonDown[button],
+      justPressedButton: (button: CabinetButton) => snapshot.buttonJustPressed[button],
     };
   }
 
@@ -422,31 +529,11 @@ export class InputManager {
       axisY: 0,
       dirDown: { UP: false, DOWN: false, LEFT: false, RIGHT: false },
       dirJustPressed: { UP: false, DOWN: false, LEFT: false, RIGHT: false },
-      buttonDown: {
-        GREEN: false,
-        YELLOW: false,
-        RED: false,
-        BLUE: false,
-        OK: false,
-        ESC: false,
-      },
-      buttonJustPressed: {
-        GREEN: false,
-        YELLOW: false,
-        RED: false,
-        BLUE: false,
-        OK: false,
-        ESC: false,
-      },
-      buttonJustReleased: {
-        GREEN: false,
-        YELLOW: false,
-        RED: false,
-        BLUE: false,
-        OK: false,
-        ESC: false,
-      },
+      buttonDown: makeButtonRecord(false),
+      buttonJustPressed: makeButtonRecord(false),
+      buttonJustReleased: makeButtonRecord(false),
       gamepadConnected: false,
+      gamepadCount: 0,
       gamepadName: null,
     };
   }

@@ -2738,6 +2738,11 @@ export const conductorGameDefinition: ArcadeGameDefinition<ConductorAction> = {
   title: 'Cab Conductor',
   subtitle: 'Steer track switches from the cab!',
   accentColor: '#FFB300',
+  developmental: {
+    parentCategory: 'Paths & Choices',
+    primaryTags: ['C1', 'C3'],
+    secondaryTags: ['A2', 'G1'],
+  },
   controls: [
     { action: 'switchPort', button: 'RED', label: 'Port (Left)', icon: 'forkLeft' },
     { action: 'switchStraight', button: 'BLUE', label: 'Ahead', icon: 'forkStraight' },

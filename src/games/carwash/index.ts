@@ -1330,6 +1330,11 @@ export const carWashGameDefinition: ArcadeGameDefinition<CarWashAction> = {
   title: 'Bubble Car Wash',
   subtitle: 'Wash, soap, rinse & dry muddy cars!',
   accentColor: '#29B6F6',
+  developmental: {
+    parentCategory: 'Routines & Order',
+    primaryTags: ['D2', 'E2'],
+    secondaryTags: ['A1', 'D3'],
+  },
   controls: [
     { action: 'summonCar', button: 'GREEN', label: 'Next Car', icon: 'car' },
     { action: 'waterTool', button: 'BLUE', label: 'Water', icon: 'spray' },
