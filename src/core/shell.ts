@@ -126,6 +126,11 @@ export class ArcadeShell {
       // 2. Forward viewport taps to active game when no modal overlay is open
       if (this.activeGame && !this.configModalOpen && y < this.lastViewportH) {
         this.activeGame.onPointerDown?.(x, y, this.lastViewportW, this.lastViewportH);
+        if (this.activeGame.onPointerUp) {
+          this.activePointerUps.set(e.pointerId, () => {
+            this.activeGame?.onPointerUp?.();
+          });
+        }
         return;
       }
 

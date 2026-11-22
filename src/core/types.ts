@@ -148,8 +148,10 @@ export interface GameContext {
 export interface ArcadeGameInstance<Action extends string = string> {
   update(dt: number, input: GameInput<Action>): void;
   render(ctx: CanvasRenderingContext2D, width: number, height: number): void;
-  /** Optional pointer tap handler for touch/click interactions inside the game viewport */
+  /** Optional pointer tap/hold handler for touch/click interactions inside the game viewport */
   onPointerDown?(x: number, y: number, width: number, height: number): void;
+  /** Optional pointer release handler for momentary touch/click interactions inside the game viewport */
+  onPointerUp?(): void;
   /** Optional list of cabinet buttons to flash in the UI (e.g. steps still needed) */
   getFlashingButtons?(): CabinetButton[];
   /** Optional dynamic deck visual state (e.g. switching between merged 4-color and split +/- rows) */

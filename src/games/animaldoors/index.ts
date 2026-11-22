@@ -41,7 +41,7 @@ interface DoorState {
   isOpen: boolean;
   openProgress: number; // 0 (closed) .. 1 (open)
   bounceTimer: number;
-  autoCloseTimer: number;
+  minPeekTimer: number;
 }
 
 interface FloatingShapeToken {
@@ -75,8 +75,10 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
     isOpen: false,
     openProgress: 0,
     bounceTimer: 0,
-    autoCloseTimer: 0,
+    minPeekTimer: 0,
   }));
+
+  private pointerHeldDoorIdx: number | null = null;
 
   // White Shape button active prop/accessory state
   private activeShapeButton: ShapeButton | null = null;
@@ -128,7 +130,7 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
   }
 
   public onPointerDown(x: number, y: number, width: number, height: number): void {
-    // Allow tapping directly on any of the 4 cottage doors on touchscreens
+    // Allow holding/tapping directly on any of the 4 cottage doors on touchscreens
     const layout = this.computeDoorLayout(width, height);
     for (let i = 0; i < 4; i++) {
       const dx = layout.startX + i * layout.spacing;
@@ -138,19 +140,25 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
         y >= layout.groundY - layout.doorH * 1.3 &&
         y <= layout.groundY + 20
       ) {
+        this.pointerHeldDoorIdx = i;
         this.triggerDoor(i);
         return;
       }
     }
   }
 
+  public onPointerUp(): void {
+    this.pointerHeldDoorIdx = null;
+  }
+
   private switchBranch(next: ActivityBranch): void {
     if (this.branch === next) return;
     this.branch = next;
+    this.pointerHeldDoorIdx = null;
     for (const d of this.doors) {
       d.isOpen = false;
       d.bounceTimer = 0;
-      d.autoCloseTimer = 0;
+      d.minPeekTimer = 0;
     }
     if (next === 'find') {
       this.startNextHideRound();
@@ -161,6 +169,7 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
     for (const d of this.doors) {
       d.isOpen = false;
       d.bounceTimer = 0;
+      d.minPeekTimer = 0;
     }
     // Pick a new door & animal (varied from previous so it feels fresh)
     const nextDoor = (this.hidingDoorIdx + 1 + Math.floor(Math.random() * 3)) % 4;
@@ -186,7 +195,7 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
       }
     }
 
-    // 1. Handle the 6 White Shape Buttons (X1..X6)
+    // 1. Handle the 6 White Shape Buttons (X1..X6) — playful props & floating surprises
     for (let idx = 0; idx < SHAPE_BUTTON_LIST.length; idx++) {
       const sBtn = SHAPE_BUTTON_LIST[idx];
       if (input.justPressedButton(sBtn)) {
@@ -194,31 +203,40 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
       }
     }
 
-    // 2. Handle the 4 Merged Colored Button Pairs (R1/R2, G1/G2, B1/B2, Y1/Y2)
+    // 2. Handle the 4 Colored Buttons as Momentary Switches in Explore mode
     const actions: DoorsAction[] = ['doorRed', 'doorGreen', 'doorBlue', 'doorYellow'];
     actions.forEach((act, idx) => {
       if (input.justPressed(act)) {
         this.triggerDoor(idx);
       }
+
+      if (this.branch === 'explore') {
+        const door = this.doors[idx];
+        const held = input.isDown(act) || this.pointerHeldDoorIdx === idx;
+        if (held) {
+          door.isOpen = true;
+          // Keep the animal playfully waving/bouncing while the button stays held
+          if (door.bounceTimer <= 0.05) {
+            door.bounceTimer = 0.55;
+          }
+        } else {
+          if (door.minPeekTimer > 0) {
+            door.minPeekTimer = Math.max(0, door.minPeekTimer - dt);
+          }
+          if (door.minPeekTimer <= 0 && door.isOpen) {
+            door.isOpen = false;
+            this.audio.playDoorClose();
+          }
+        }
+      }
     });
 
-    // 3. OK button: in Explore mode, opens all doors for a group hello (or closes if all open);
-    // in Find mode during celebration, starts the next round right away.
+    // 3. OK button: in Explore mode, sends a cheerful sparkle burst; in Find mode, starts next round
     if (input.justPressedButton('OK') && !SHAPE_BUTTON_LIST.some((s) => input.isButtonDown(s))) {
       if (this.branch === 'explore') {
-        const allOpen = this.doors.every((d) => d.isOpen);
-        if (allOpen) {
-          this.doors.forEach((d) => {
-            d.isOpen = false;
-          });
-          this.audio.playGentleWoodKnock();
-        } else {
-          this.doors.forEach((d, idx) => {
-            d.isOpen = true;
-            d.bounceTimer = 0.9;
-            d.autoCloseTimer = 7.0;
-            if (idx === 0) this.audio.playStageComplete(false);
-          });
+        this.audio.playShapeSparkle(4);
+        for (let i = 0; i < 4; i++) {
+          this.spawnCelebrationShapes(i, 'star', '#FFD54F');
         }
       } else if (this.findPhase === 'celebrating') {
         this.startNextHideRound();
@@ -245,18 +263,13 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
       }
     }
 
-    // 5. Smoothly animate doors & animal bounces
+    // 5. Snappy spring-hinge door animation (fast open on press, immediate swing shut on release)
     for (const d of this.doors) {
       const targetOpen = d.isOpen ? 1 : 0;
-      d.openProgress += (targetOpen - d.openProgress) * Math.min(1, dt * 9);
+      const hingeRate = d.isOpen ? 16 : 13;
+      d.openProgress += (targetOpen - d.openProgress) * Math.min(1, dt * hingeRate);
       if (d.bounceTimer > 0) {
         d.bounceTimer = Math.max(0, d.bounceTimer - dt);
-      }
-      if (this.branch === 'explore' && d.isOpen) {
-        d.autoCloseTimer -= dt;
-        if (d.autoCloseTimer <= 0) {
-          d.isOpen = false;
-        }
       }
     }
 
@@ -281,10 +294,10 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
     if (!door) return;
 
     if (this.branch === 'explore') {
-      const wasOpen = door.isOpen;
+      const wasOpen = door.openProgress > 0.45;
       door.isOpen = true;
       door.bounceTimer = 0.85;
-      door.autoCloseTimer = 6.5;
+      door.minPeekTimer = 0.14;
       this.audio.playAnimalDoorGreeting(door.animal, wasOpen);
       return;
     }
@@ -875,7 +888,7 @@ class PeekabooDoorsGame implements ArcadeGameInstance<DoorsAction> {
 export const animalDoorsGameDefinition: ArcadeGameDefinition<DoorsAction> = {
   id: 'peekaboo-doors',
   title: 'Peekaboo Doors',
-  subtitle: 'Open colored doors to greet animal friends!',
+  subtitle: 'Hold colored buttons to peek inside!',
   accentColor: '#EF5350',
   developmental: {
     parentCategory: 'Cause & Effect',

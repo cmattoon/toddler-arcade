@@ -831,4 +831,154 @@ export class ArcadeAudio {
     osc.start(now);
     osc.stop(now + 0.16);
   }
+
+  /** Soft wooden latch click when a momentary peekaboo door swings shut */
+  public playDoorClose(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(240, now);
+    osc.frequency.exponentialRampToValueAtTime(115, now + 0.065);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.15, now + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.085);
+  }
+
+  /**
+   * Playful car launch rev + musical major-chord horn for Stunt Ramp Garage.
+   * colorIndex 0..3 tunes the horn to C5 / E5 / G5 / C6 so rapid button mashing always sounds harmonious!
+   */
+  public playCarLaunch(
+    colorIndex: number,
+    vehicleStyle: 'dump' | 'buggy' | 'racer' | 'tractor' | 'rescue' | 'icecream' = 'racer'
+  ): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+
+    // 1. Warm filtered toy-engine rev ("vroooom!")
+    const revOsc = ctx.createOscillator();
+    const revFilter = ctx.createBiquadFilter();
+    const revGain = ctx.createGain();
+    revOsc.type = 'sawtooth';
+    const baseRev = vehicleStyle === 'tractor' || vehicleStyle === 'dump' ? 68 : 95;
+    revOsc.frequency.setValueAtTime(baseRev, now);
+    revOsc.frequency.exponentialRampToValueAtTime(baseRev * 2.15, now + 0.19);
+    revFilter.type = 'lowpass';
+    revFilter.frequency.setValueAtTime(420, now);
+    revFilter.frequency.linearRampToValueAtTime(780, now + 0.18);
+    revGain.gain.setValueAtTime(0.001, now);
+    revGain.gain.linearRampToValueAtTime(0.16, now + 0.025);
+    revGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+    revOsc.connect(revFilter);
+    revFilter.connect(revGain);
+    revGain.connect(this.masterGain);
+    revOsc.start(now);
+    revOsc.stop(now + 0.26);
+
+    // 2. Harmonious C-major horn / siren / jingle accent per vehicle style
+    const chord = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    const hornFreq = chord[((colorIndex % 4) + 4) % 4];
+
+    if (vehicleStyle === 'rescue') {
+      // Friendly two-note "wee-oo!"
+      [hornFreq, hornFreq * 0.75].forEach((f, idx) => {
+        const t = now + 0.03 + idx * 0.11;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.2, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.12);
+      });
+    } else if (vehicleStyle === 'icecream') {
+      // Sweet 3-note music-box jingle
+      [hornFreq, hornFreq * 1.25, hornFreq * 1.5].forEach((f, idx) => {
+        const t = now + 0.02 + idx * 0.065;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.18, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.2);
+      });
+    } else {
+      // Classic cheerful double "beep-beep!" (or deep brass toot for dump/tractor)
+      const mult = vehicleStyle === 'dump' || vehicleStyle === 'tractor' ? 0.5 : 1.0;
+      const offsets = vehicleStyle === 'buggy' ? [0.02, 0.1] : [0.03];
+      offsets.forEach((d) => {
+        const t = now + d;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(hornFreq * mult, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.21, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.13);
+      });
+    }
+  }
+
+  /** Crisp bubbly pop + sparkle chime when a flying car pops a sky balloon */
+  public playBalloonPop(pitchIndex = 0): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    const pentatonic = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+    const base = pentatonic[((pitchIndex % 6) + 6) % 6];
+
+    const popOsc = ctx.createOscillator();
+    const popGain = ctx.createGain();
+    popOsc.type = 'sine';
+    popOsc.frequency.setValueAtTime(base * 0.7, now);
+    popOsc.frequency.exponentialRampToValueAtTime(base * 1.9, now + 0.055);
+    popGain.gain.setValueAtTime(0.24, now);
+    popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    popOsc.connect(popGain);
+    popGain.connect(this.masterGain);
+    popOsc.start(now);
+    popOsc.stop(now + 0.08);
+  }
+
+  /** Soft rubbery spring boing when a stunt car lands and bounces on its tires */
+  public playTireBounce(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(135, now);
+    osc.frequency.exponentialRampToValueAtTime(245, now + 0.075);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.13);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
 }
