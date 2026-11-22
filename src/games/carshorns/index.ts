@@ -7,11 +7,11 @@
  * secondary_tags: [C1, B2]
  * concept:
  *   - Pressing the 4 colored buttons honks 4 distinct vehicles (Turbo Racer, Bouncy Bug, Big Pickup, Sunny Van), each with its own unique, harmonious horn sound.
- *   - Moving the joystick selects one of the 4 cars, and pressing any white button cycles that selected car's paint skin through 6 bold liveries.
- * child_action: "Press the 4 colored buttons to honk each car's horn, move the joystick left/right to pick a car, and press any white button to cycle its paint skin."
- * complexity_step: "Coordinate directional selection (joystick) with attribute customization (cycling skins) while exploring 4 distinct horn timbres."
+ *   - Moving the joystick selects one of the 4 cars, and pressing any of the 6 white shape buttons applies that shape's matching paint skin directly to the selected car.
+ * child_action: "Press the 4 colored buttons to honk each car's horn, move the joystick left/right to pick a car, and press any white shape button to paint it with that shape's skin."
+ * complexity_step: "Coordinate directional selection (joystick) with 1-to-1 shape-to-skin customization while exploring 4 distinct horn timbres."
  * not_complexity: "No timers, wrong buttons, or failure states."
- * feedback: "Selected car glows on a golden turntable; skin changes burst with paint sparkles; honks bounce the car, flash headlights, and float musical horn bubbles."
+ * feedback: "Selected car glows on a golden turntable; shape-skin changes burst with matching shape sparkles; honks bounce the car, flash headlights, and float musical horn bubbles."
  * real_world_extension: "Compare toy cars of different shapes/sizes and make silly horn sounds for each one together."
  */
 
@@ -33,7 +33,14 @@ type HornAction = 'honkRed' | 'honkGreen' | 'honkBlue' | 'honkYellow';
 
 type CarBodyStyle = 'racer' | 'buggy' | 'truck' | 'van';
 
-type SkinPatternId = 'classic' | 'stripes' | 'checkers' | 'flames' | 'dots' | 'stars';
+type SkinPatternId =
+  | 'classic'
+  | 'squares'
+  | 'circles'
+  | 'triangles'
+  | 'diamonds'
+  | 'stars'
+  | 'hearts';
 
 interface SkinSpec {
   id: SkinPatternId;
@@ -45,56 +52,66 @@ interface SkinSpec {
   badgeShape: ShapeKind;
 }
 
-const CAR_SKINS: SkinSpec[] = [
-  {
-    id: 'classic',
-    label: 'Classic Gloss',
-    baseHex: '#EF5350',
-    darkHex: '#B71C1C',
-    accentHex: '#FFFFFF',
-    badgeShape: 'circle',
-  },
-  {
-    id: 'stripes',
-    label: 'Racing Stripes',
-    baseHex: '#1E88E5',
-    darkHex: '#0D47A1',
-    accentHex: '#FFD54F',
-    badgeShape: 'triangle',
-  },
-  {
-    id: 'checkers',
-    label: 'Checkered Rally',
+const CLASSIC_SKIN: SkinSpec = {
+  id: 'classic',
+  label: 'Classic Gloss',
+  baseHex: '#EF5350',
+  darkHex: '#B71C1C',
+  accentHex: '#FFFFFF',
+  badgeShape: 'circle',
+};
+
+/** 1-to-1 mapping from each physical White Shape Button (X1..X6) to its matching shape livery! */
+const SHAPE_SKINS: Record<ShapeButton, SkinSpec> = {
+  X1: {
+    id: 'squares',
+    label: 'Checkered Squares',
     baseHex: '#FFB300',
     darkHex: '#E65100',
     accentHex: '#FFFFFF',
     badgeShape: 'square',
   },
-  {
-    id: 'flames',
-    label: 'Hot Flames',
-    baseHex: '#6A1B9A',
-    darkHex: '#38006B',
-    accentHex: '#FF7043',
+  X2: {
+    id: 'circles',
+    label: 'Bubble Circles',
+    baseHex: '#00ACC1',
+    darkHex: '#006064',
+    accentHex: '#FFF59D',
+    badgeShape: 'circle',
+  },
+  X3: {
+    id: 'triangles',
+    label: 'Speed Triangles',
+    baseHex: '#1E88E5',
+    darkHex: '#0D47A1',
+    accentHex: '#FFD54F',
+    badgeShape: 'triangle',
+  },
+  X4: {
+    id: 'diamonds',
+    label: 'Super Diamonds',
+    baseHex: '#7B1FA2',
+    darkHex: '#4A148C',
+    accentHex: '#80DEEA',
     badgeShape: 'diamond',
   },
-  {
-    id: 'dots',
-    label: 'Polka Party',
+  X5: {
+    id: 'stars',
+    label: 'Starry Galaxy',
+    baseHex: '#283593',
+    darkHex: '#1A237E',
+    accentHex: '#FFEE58',
+    badgeShape: 'star',
+  },
+  X6: {
+    id: 'hearts',
+    label: 'Sweet Hearts',
     baseHex: '#EC407A',
     darkHex: '#AD1457',
     accentHex: '#FFF59D',
     badgeShape: 'heart',
   },
-  {
-    id: 'stars',
-    label: 'Starry Galaxy',
-    baseHex: '#00838F',
-    darkHex: '#004D40',
-    accentHex: '#FFEE58',
-    badgeShape: 'star',
-  },
-];
+};
 
 interface CarSlotSpec {
   color: MergedColorButton;
@@ -115,7 +132,7 @@ interface ShowroomCar {
   color: MergedColorButton;
   style: CarBodyStyle;
   name: string;
-  skinIndex: number;
+  skinButton: ShapeButton | null;
   hopOffset: number;
   hopVel: number;
   squish: number;
@@ -175,15 +192,13 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
   private selectedCarIdx = 0;
   private stickHoldDir: -1 | 0 | 1 = 0;
   private stickRepeatTimer = 0;
-  private lastShapeBtn: ShapeButton | null = null;
-  private shapeHighlightTimer = 0;
 
   private cars: ShowroomCar[] = CAR_SLOTS.map((s, idx) => ({
     slotIdx: idx,
     color: s.color,
     style: s.style,
     name: s.name,
-    skinIndex: 0,
+    skinButton: null,
     hopOffset: 0,
     hopVel: 0,
     squish: 0,
@@ -215,7 +230,7 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
         YELLOW: 'Yellow Horn',
       },
       shapesActive: true,
-      selectedShape: this.shapeHighlightTimer > 0 ? this.lastShapeBtn : null,
+      selectedShape: this.cars[this.selectedCarIdx]?.skinButton ?? null,
     };
   }
 
@@ -234,16 +249,16 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
   }
 
   private getCarColors(car: ShowroomCar): { base: string; dark: string; accent: string; skin: SkinSpec } {
-    const skin = CAR_SKINS[car.skinIndex] ?? CAR_SKINS[0];
-    if (skin.id === 'classic') {
+    if (!car.skinButton) {
       const pal = CABINET_COLOR_PALETTE[car.color];
       return {
         base: pal.face,
         dark: pal.dark,
         accent: '#FFFFFF',
-        skin,
+        skin: CLASSIC_SKIN,
       };
     }
+    const skin = SHAPE_SKINS[car.skinButton];
     return {
       base: skin.baseHex,
       dark: skin.darkHex,
@@ -266,17 +281,15 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
 
     const { carBaseY, spacing, startX } = this.getSlotLayout(width, height);
 
-    // 2. Tap top-left skin changer pill or the badge above the selected car -> cycle skin!
-    if (x >= 16 && x <= 254 && y >= 14 && y <= 58) {
-      this.cycleSelectedCarSkin(width, height);
-      return;
-    }
-
-    const selX = startX + this.selectedCarIdx * spacing;
-    const badgeY = carBaseY - 156;
-    if (Math.abs(x - selX) <= 84 && Math.abs(y - badgeY) <= 28) {
-      this.cycleSelectedCarSkin(width, height);
-      return;
+    // 2. Tap one of the 6 mini shape-skin buttons in the top-left pill -> apply that shape's skin!
+    if (y >= 12 && y <= 60 && x >= 16 && x <= 290) {
+      for (let i = 0; i < SHAPE_BUTTON_LIST.length; i++) {
+        const bx = 38 + i * 32;
+        if (Math.abs(x - bx) <= 16) {
+          this.applySelectedCarShapeSkin(SHAPE_BUTTON_LIST[i]);
+          return;
+        }
+      }
     }
 
     // 3. Tap any of the 4 cars -> select it and honk its horn!
@@ -294,9 +307,6 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
 
   public update(dt: number, input: GameInput<HornAction>): void {
     this.time += dt;
-    if (this.shapeHighlightTimer > 0) {
-      this.shapeHighlightTimer = Math.max(0, this.shapeHighlightTimer - dt);
-    }
 
     // 1. Joystick LEFT / RIGHT selects one of the 4 cars (discrete tap + gentle held repeat)
     if (input.dirJustPressed.RIGHT) {
@@ -342,12 +352,10 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
       this.audio.playTireBounce();
     }
 
-    // 2. Any White Button (X1..X6) cycles the selected car's skin through the 6 options!
+    // 2. Each White Shape Button (X1..X6) directly applies that shape's matching skin!
     for (const sBtn of SHAPE_BUTTON_LIST) {
       if (input.justPressedButton(sBtn)) {
-        this.lastShapeBtn = sBtn;
-        this.shapeHighlightTimer = 0.45;
-        this.cycleSelectedCarSkin();
+        this.applySelectedCarShapeSkin(sBtn);
         break;
       }
     }
@@ -463,18 +471,17 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
     }
   }
 
-  private cycleSelectedCarSkin(_width = 1280, _height = 600): void {
-    void _width;
-    void _height;
+  private applySelectedCarShapeSkin(sBtn: ShapeButton): void {
     const car = this.cars[this.selectedCarIdx];
-    car.skinIndex = (car.skinIndex + 1) % CAR_SKINS.length;
+    car.skinButton = sBtn;
     car.hopVel = -225;
     car.squish = 0.34;
     car.wheelSpinVel = 14;
     car.headlightTimer = 0.45;
 
     const { base, accent, skin } = this.getCarColors(car);
-    this.audio.playColorCycle(car.skinIndex + this.selectedCarIdx);
+    const shapeIdx = Math.max(0, SHAPE_BUTTON_LIST.indexOf(sBtn));
+    this.audio.playShapeSparkle(shapeIdx);
 
     const normX = 0.155 + this.selectedCarIdx * 0.23;
     const normY = 0.72;
@@ -489,7 +496,7 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
         vy: Math.sin(ang) * spd - 0.12,
         color: sparkPalette[k % sparkPalette.length],
         shape: skin.badgeShape,
-        size: 6 + Math.random() * 5,
+        size: 6.5 + Math.random() * 5,
         rot: Math.random() * Math.PI * 2,
         vRot: (Math.random() - 0.5) * 9,
         age: 0,
@@ -900,32 +907,8 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(car.slotIdx + 1), rx, ry + 1);
-    } else if (skin.id === 'stripes') {
-      // Bold diagonal twin white + gold rally stripes + side speed bar
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.moveTo(-48, -120);
-      ctx.lineTo(-28, -120);
-      ctx.lineTo(-56, 0);
-      ctx.lineTo(-76, 0);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = accentHex;
-      ctx.beginPath();
-      ctx.moveTo(-22, -120);
-      ctx.lineTo(-8, -120);
-      ctx.lineTo(-36, 0);
-      ctx.lineTo(-50, 0);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(-110, -34, 220, 6);
-      ctx.fillStyle = accentHex;
-      ctx.fillRect(-110, -28, 220, 4);
-    } else if (skin.id === 'checkers') {
-      // Crisp 2-row black & white rally checkerboard band
+    } else if (skin.id === 'squares') {
+      // X1 (Square): Bold 2-row black & white rally square checkerboard band!
       const bandY = car.style === 'racer' ? -44 : -50;
       const sq = 13;
       for (let x = -110; x < 110; x += sq) {
@@ -935,61 +918,77 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
         ctx.fillStyle = col % 2 === 1 ? '#141926' : '#FFFFFF';
         ctx.fillRect(x, bandY + sq, sq, sq);
       }
-    } else if (skin.id === 'flames') {
-      // Sweeping orange & yellow hot-rod flames from the front nose!
-      ctx.fillStyle = '#FF6D00';
-      ctx.beginPath();
-      ctx.moveTo(108, -14);
-      ctx.lineTo(108, -74);
-      ctx.lineTo(36, -64);
-      ctx.lineTo(62, -50);
-      ctx.lineTo(-8, -46);
-      ctx.lineTo(34, -34);
-      ctx.lineTo(-36, -26);
-      ctx.lineTo(24, -16);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#FFD54F';
-      ctx.beginPath();
-      ctx.moveTo(108, -18);
-      ctx.lineTo(108, -60);
-      ctx.lineTo(54, -54);
-      ctx.lineTo(74, -43);
-      ctx.lineTo(24, -39);
-      ctx.lineTo(54, -29);
-      ctx.lineTo(6, -23);
-      ctx.closePath();
-      ctx.fill();
-    } else if (skin.id === 'dots') {
-      // Playful multi-color candy polka dots
+    } else if (skin.id === 'circles') {
+      // X2 (Circle): Playful multi-color candy polka circles & bubble rings!
       const dots: Array<[number, number, number, string]> = [
-        [-72, -36, 9, '#FFF59D'],
-        [-46, -56, 8, '#80DEEA'],
-        [-38, -28, 7, '#FFFFFF'],
-        [-12, -44, 10, '#C5E1A5'],
-        [14, -30, 8.5, '#FFE082'],
-        [24, -56, 7.5, '#FFFFFF'],
-        [46, -40, 9.5, '#80DEEA'],
-        [72, -32, 8, '#FFF59D'],
-        [-64, -76, 7, '#FFE082'],
-        [-16, -84, 8, '#80DEEA'],
-        [32, -84, 7.5, '#FFF59D'],
+        [-72, -36, 9.5, '#FFF59D'],
+        [-46, -54, 8.5, '#FFFFFF'],
+        [-36, -28, 7.5, '#FF80AB'],
+        [-10, -44, 11, '#FFF59D'],
+        [16, -30, 8.5, '#FFFFFF'],
+        [26, -56, 8, '#B2FF59'],
+        [50, -38, 10, '#FFF59D'],
+        [74, -32, 8.5, '#FFFFFF'],
+        [-58, -80, 7.5, '#FFFFFF'],
+        [-10, -86, 8.5, '#FFF59D'],
+        [34, -84, 7.5, '#FF80AB'],
       ];
       for (const [dx, dy, r, col] of dots) {
         ctx.fillStyle = col;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
         ctx.arc(dx, dy, r, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
+      }
+    } else if (skin.id === 'triangles') {
+      // X3 (Triangle): Bold racing stripe + upright colorful triangle pennants!
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fillRect(-110, -34, 220, 6);
+
+      const tris: Array<[number, number, number, string]> = [
+        [-68, -36, 11, '#FFD54F'],
+        [-34, -44, 12, '#FFFFFF'],
+        [0, -36, 12, accentHex],
+        [34, -44, 11.5, '#FFFFFF'],
+        [68, -34, 10.5, '#FFD54F'],
+        [-22, -82, 9.5, '#FFD54F'],
+        [18, -82, 9.5, '#FFFFFF'],
+      ];
+      for (const [tx, ty, tr, col] of tris) {
+        drawCabinetShape(ctx, tx, ty, tr, 'triangle', {
+          fill: col,
+          stroke: '#0D47A1',
+          lineWidth: 1.5,
+        });
+      }
+    } else if (skin.id === 'diamonds') {
+      // X4 (Diamond): Gleaming harlequin crystal diamonds across the body!
+      const diamonds: Array<[number, number, number, string]> = [
+        [-68, -38, 11, '#80DEEA'],
+        [-36, -50, 11.5, '#FFD54F'],
+        [-6, -34, 12, '#FFFFFF'],
+        [26, -48, 11.5, '#80DEEA'],
+        [58, -36, 11, '#FFD54F'],
+        [-34, -82, 9.5, '#FFFFFF'],
+        [10, -84, 10, '#80DEEA'],
+      ];
+      for (const [dx, dy, dr, col] of diamonds) {
+        drawCabinetShape(ctx, dx, dy, dr, 'diamond', {
+          fill: col,
+          stroke: '#FFFFFF',
+          lineWidth: 1.4,
+        });
       }
     } else if (skin.id === 'stars') {
-      // Sparkling golden galaxy stars & shimmer dots
+      // X5 (Star): Sparkling golden galaxy stars & shimmer dots!
       const stars: Array<[number, number, number]> = [
-        [-66, -38, 10],
+        [-66, -38, 10.5],
         [-22, -48, 13],
-        [22, -34, 11],
-        [64, -42, 9.5],
-        [-42, -82, 9],
+        [22, -34, 11.5],
+        [64, -42, 10],
+        [-42, -82, 9.5],
         [12, -86, 10],
       ];
       for (const [sx, sy, sr] of stars) {
@@ -999,7 +998,7 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
           lineWidth: 1.3,
         });
       }
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
       for (const [tx, ty] of [
         [-45, -28],
         [-2, -28],
@@ -1009,6 +1008,23 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
         ctx.beginPath();
         ctx.arc(tx, ty, 2.5, 0, Math.PI * 2);
         ctx.fill();
+      }
+    } else if (skin.id === 'hearts') {
+      // X6 (Heart): Cheerful sweet candy hearts across the body!
+      const hearts: Array<[number, number, number, string]> = [
+        [-66, -38, 10.5, '#FFFFFF'],
+        [-26, -46, 12.5, '#FFF59D'],
+        [16, -35, 11.5, '#FFFFFF'],
+        [58, -40, 10.5, '#FFE082'],
+        [-38, -82, 9.5, '#FFF59D'],
+        [14, -84, 9.5, '#FFFFFF'],
+      ];
+      for (const [hx, hy, hr, col] of hearts) {
+        drawCabinetShape(ctx, hx, hy, hr, 'heart', {
+          fill: col,
+          stroke: '#AD1457',
+          lineWidth: 1.3,
+        });
       }
     }
 
@@ -1273,36 +1289,38 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
 
   private drawTopLeftSkinPill(ctx: CanvasRenderingContext2D, x: number, y: number): void {
     const selCar = this.cars[this.selectedCarIdx];
-    const { base, skin } = this.getCarColors(selCar);
 
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.strokeStyle = '#CFD8DC';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(x, y, 228, 40, 20);
+    ctx.roundRect(x, y, 212, 42, 21);
     ctx.fill();
     ctx.stroke();
 
-    // Mini white button icon on left of pill
-    ctx.fillStyle = '#FFFFFF';
-    ctx.strokeStyle = '#141926';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(x + 22, y + 20, 12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    drawCabinetShape(ctx, x + 22, y + 20, 7, skin.badgeShape, {
-      fill: base,
-      stroke: '#141926',
-      lineWidth: 1.5,
+    // 6 clickable white shape-skin buttons (X1..X6 -> Square, Circle, Triangle, Diamond, Star, Heart)
+    SHAPE_BUTTON_LIST.forEach((sBtn, idx) => {
+      const bx = 38 + idx * 32;
+      const by = y + 21;
+      const skin = SHAPE_SKINS[sBtn];
+      const active = selCar.skinButton === sBtn;
+
+      ctx.fillStyle = active ? '#FFF8E1' : '#FFFFFF';
+      ctx.strokeStyle = active ? '#FFB300' : '#90A4AE';
+      ctx.lineWidth = active ? 2.6 : 1.6;
+      ctx.beginPath();
+      ctx.arc(bx, by, active ? 13 : 11.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      drawCabinetShape(ctx, bx, by, active ? 7.5 : 6.5, skin.badgeShape, {
+        fill: skin.baseHex,
+        stroke: '#141926',
+        lineWidth: 1.3,
+      });
     });
 
-    ctx.fillStyle = '#263238';
-    ctx.font = '800 13px system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`${selCar.name}: ${skin.label}`, x + 40, y + 20.5, 180);
     ctx.restore();
   }
 
@@ -1314,7 +1332,7 @@ class CarsAndHornsGame implements ArcadeGameInstance<HornAction> {
 export const carsHornsGameDefinition: ArcadeGameDefinition<HornAction> = {
   id: 'cars-horns',
   title: 'Cars & Horns',
-  subtitle: 'Honk 4 silly horns & cycle fun car skins!',
+  subtitle: 'Honk 4 silly horns & pick 6 shape skins!',
   accentColor: '#FFA726',
   developmental: {
     parentCategory: 'Sound & Choice',
