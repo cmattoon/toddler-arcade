@@ -248,7 +248,8 @@ export class ArcadeShell {
     if (count <= 3) return count;
     if (count === 4) return 2;
     if (count <= 6) return 3;
-    return 4;
+    if (count <= 8) return 4;
+    return 5;
   }
 
   private launchSelectedGame(): void {
@@ -388,9 +389,9 @@ export class ArcadeShell {
 
     const gridTop = headerY + (compact ? 48 : 66);
     const availH = height - gridTop - (compact ? 16 : 28);
-    const availW = Math.min(width - 48, 1210);
+    const availW = Math.min(width - 40, cols >= 5 ? 1320 : 1210);
 
-    const gapX = cols >= 4 ? 18 : 24;
+    const gapX = cols >= 5 ? 14 : cols >= 4 ? 18 : 24;
     const gapY = compact ? 18 : 26;
     const cardW = Math.min(366, Math.floor((availW - gapX * (cols - 1)) / cols));
     const cardH = Math.min(compact ? 236 : 305, Math.floor((availH - gapY * (rows - 1)) / rows));
@@ -458,23 +459,27 @@ export class ArcadeShell {
 
       ctx.fillStyle = '#141926';
       ctx.font =
-        cols >= 4
-          ? '900 18.5px system-ui, sans-serif'
-          : compact
-            ? '900 20px system-ui, sans-serif'
-            : '900 24px system-ui, sans-serif';
+        cols >= 5
+          ? '900 16.5px system-ui, sans-serif'
+          : cols >= 4
+            ? '900 18.5px system-ui, sans-serif'
+            : compact
+              ? '900 20px system-ui, sans-serif'
+              : '900 24px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(game.title, cardW / 2, artH + artMargin + (compact ? 22 : 28));
+      ctx.fillText(game.title, cardW / 2, artH + artMargin + (compact ? 22 : 28), cardW - 16);
 
       ctx.fillStyle = '#546E7A';
       ctx.font =
-        cols >= 4
-          ? '600 12px system-ui, sans-serif'
-          : compact
-            ? '600 13px system-ui, sans-serif'
-            : '600 14px system-ui, sans-serif';
-      ctx.fillText(game.subtitle, cardW / 2, artH + artMargin + (compact ? 45 : 52));
+        cols >= 5
+          ? '600 11.5px system-ui, sans-serif'
+          : cols >= 4
+            ? '600 12px system-ui, sans-serif'
+            : compact
+              ? '600 13px system-ui, sans-serif'
+              : '600 14px system-ui, sans-serif';
+      ctx.fillText(game.subtitle, cardW / 2, artH + artMargin + (compact ? 45 : 52), cardW - 16);
 
       if (isSelected) {
         ctx.strokeStyle = '#FFD54F';
@@ -535,6 +540,30 @@ export class ArcadeShell {
       h: 34,
       onDown: () => {
         this.audio.toggleMute();
+      },
+    });
+
+    rightX -= 52;
+    const fsX = rightX;
+    const isFs = Boolean(document.fullscreenElement);
+    ctx.fillStyle = 'rgba(20, 25, 38, 0.56)';
+    ctx.beginPath();
+    ctx.roundRect(fsX, y, 46, 34, 10);
+    ctx.fill();
+    ctx.fillStyle = isFs ? '#81C784' : '#CFD8DC';
+    ctx.font = '700 11.5px system-ui, sans-serif';
+    ctx.fillText(isFs ? 'EXIT' : 'FULL', fsX + 23, y + 17);
+    this.hitRegions.push({
+      x: fsX,
+      y,
+      w: 46,
+      h: 34,
+      onDown: () => {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        } else {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
       },
     });
 

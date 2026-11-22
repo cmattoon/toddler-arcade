@@ -5,7 +5,7 @@ import {
   GameInput,
 } from '../../core/types';
 
-export type TrainAction = 'startEngine' | 'horn' | 'brake' | 'cycleColor';
+export type TrainAction = 'chugBell' | 'horn' | 'brake' | 'cycleColor';
 
 type BiomeType = 'station' | 'cityscape' | 'suburbscape' | 'rural' | 'rural2';
 
@@ -93,6 +93,7 @@ interface SmokePuff {
   maxAge: number;
   age: number;
   tint: string;
+  isRing?: boolean;
 }
 
 interface Spark {
@@ -196,14 +197,17 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
   private readonly coastDrag = 34; // Gentle rolling inertia so train glides smoothly
   private readonly brakeDecel = 460;
 
-  // Train state
-  private engineRunning = false;
+  // Train state (engine always ready to roll so joystick & buttons always respond!)
+  private engineRunning = true;
   private hornActive = false;
   private brakingActive = false;
   private brakeHoldElapsed = 0;
   private brakePulseTimer = 0;
   private colorIndex = 0;
   private colorPopTimer = 0;
+  private bellSwingTimer = 0;
+  private chugHopTimer = 0;
+  private bellRingCount = 0;
 
   // Station stop celebration & passenger boarding state (no penalty for skipping!)
   private canCelebrateNextStop = false;
@@ -268,24 +272,27 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
     if (this.colorPopTimer > 0) {
       this.colorPopTimer = Math.max(0, this.colorPopTimer - dt);
     }
-
-    // 1. Green button: Start engine (or gently toggle off if completely stopped)
-    if (input.justPressed('startEngine')) {
-      if (!this.engineRunning) {
-        this.startEngine();
-      } else if (Math.abs(this.velocity) < 8) {
-        this.engineRunning = false;
-        this.audio.playEngineStop();
-      } else {
-        // Extra celebratory steam puff when already cruising
-        this.audio.playTrainChug(0.9, true);
-        this.emitSmoke(true, 1.3);
-      }
+    if (this.bellSwingTimer > 0) {
+      this.bellSwingTimer = Math.max(0, this.bellSwingTimer - dt);
+    }
+    if (this.chugHopTimer > 0) {
+      this.chugHopTimer = Math.max(0, this.chugHopTimer - dt);
     }
 
-    // Auto-start engine if kid moves the joystick!
-    if (Math.abs(input.axisX) > 0.15 && !this.engineRunning) {
-      this.startEngine();
+    // 1. Green button: Repeatable Chug-Boost + Brass Bell Ring + Giant Steam O-Ring!
+    if (input.justPressed('chugBell')) {
+      this.engineRunning = true;
+      const ringIdx = this.bellRingCount++;
+      this.bellSwingTimer = 0.8;
+      this.chugHopTimer = 0.28;
+      this.audio.playTrainBellChug(ringIdx);
+      this.emitSteamRing(ringIdx);
+      if (!this.brakingActive) {
+        this.velocity = Math.min(
+          this.maxForwardSpeed,
+          this.velocity < 0 ? 125 : this.velocity + 135
+        );
+      }
     }
 
     // 2. Blue (4th) button: Cycle train paint color
@@ -594,11 +601,26 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
     }
   }
 
-  private startEngine(): void {
-    this.engineRunning = true;
-    this.idlePuffTimer = 0.2;
-    this.audio.playEngineStart();
-    this.emitSmoke(true, 1.25);
+  private emitSteamRing(ringIdx: number): void {
+    const ringTints = [
+      '255, 255, 255',
+      '255, 243, 176',
+      '196, 236, 255',
+      '255, 214, 232',
+      '208, 244, 214',
+    ];
+    const stackWorldX = this.worldX + 118;
+    this.smokePuffs.push({
+      worldX: stackWorldX,
+      y: -174,
+      vx: -this.velocity * 0.16 + (Math.random() - 0.5) * 14,
+      vy: -(118 + Math.random() * 24),
+      radius: 16,
+      age: 0,
+      maxAge: 2.35,
+      tint: ringTints[ringIdx % ringTints.length],
+      isRing: true,
+    });
   }
 
   private emitSmoke(isBurst: boolean, scale = 1): void {
@@ -708,15 +730,35 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
     // 5. Ballast, wooden sleepers & steel rails
     this.drawTracks(ctx, width, height, railY, cameraLeftWorld);
 
-    // 6. Smoke puffs (behind/above smokestack in world coordinates)
+    // 6. Smoke puffs & buoyant O-shaped Steam Rings (behind/above smokestack in world coordinates)
     for (const p of this.smokePuffs) {
       const sx = p.worldX - cameraLeftWorld;
       const sy = railY + p.y;
-      const alpha = Math.max(0, 1 - p.age / p.maxAge) * 0.82;
-      ctx.fillStyle = `rgba(${p.tint}, ${alpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(sx, sy, p.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (p.isRing) {
+        const life = Math.max(0, 1 - p.age / p.maxAge);
+        const alpha = Math.min(1, life * 1.15) * 0.92;
+        const rx = p.radius * 1.25;
+        const ry = p.radius * 0.68;
+        ctx.save();
+        ctx.strokeStyle = `rgba(${p.tint}, ${alpha.toFixed(3)})`;
+        ctx.lineWidth = Math.max(4, 10 * life);
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(alpha * 0.65).toFixed(3)})`;
+        ctx.lineWidth = Math.max(2, 4 * life);
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - ry * 0.14, rx * 0.9, ry * 0.82, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        const alpha = Math.max(0, 1 - p.age / p.maxAge) * 0.82;
+        ctx.fillStyle = `rgba(${p.tint}, ${alpha.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // 7. Train (Passenger coach + Locomotive in side profile)
@@ -1302,10 +1344,14 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
       this.colorPopTimer > 0
         ? 1 + Math.sin((this.colorPopTimer / 0.55) * Math.PI) * 0.05
         : 1;
-    const engineBounce =
-      this.engineRunning
-        ? Math.sin(this.time * (Math.abs(this.velocity) > 15 ? 18 : 7)) * 1.4
+    const chugHop =
+      this.chugHopTimer > 0
+        ? -Math.sin((this.chugHopTimer / 0.28) * Math.PI) * 8
         : 0;
+    const engineBounce =
+      (this.engineRunning
+        ? Math.sin(this.time * (Math.abs(this.velocity) > 15 ? 18 : 7)) * 1.4
+        : 0) + chugHop;
 
     ctx.save();
     ctx.translate(cx, railY);
@@ -1463,6 +1509,51 @@ class TrainGame implements ArcadeGameInstance<TrainAction> {
     ctx.beginPath();
     ctx.arc(72, -118, 18, Math.PI, 0);
     ctx.fill();
+
+    // Swinging Brass Locomotive Bell (rings & swings every time Green button is pressed!)
+    ctx.save();
+    ctx.translate(72, -142);
+    // Iron bell yoke posts
+    ctx.strokeStyle = '#37474F';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-9, 10);
+    ctx.lineTo(-9, -2);
+    ctx.lineTo(9, -2);
+    ctx.lineTo(9, 10);
+    ctx.stroke();
+
+    const bellAngle =
+      this.bellSwingTimer > 0
+        ? Math.sin(this.time * 28) * 0.58 * (this.bellSwingTimer / 0.8)
+        : 0;
+    ctx.save();
+    ctx.rotate(bellAngle);
+    ctx.fillStyle = '#FFD54F';
+    ctx.beginPath();
+    ctx.moveTo(-5, -1);
+    ctx.lineTo(5, -1);
+    ctx.lineTo(9, 11);
+    ctx.lineTo(-9, 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#F57F17';
+    ctx.beginPath();
+    ctx.arc(0, 12, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (this.bellSwingTimer > 0.15) {
+      const ringAlpha = Math.min(1, this.bellSwingTimer * 1.4);
+      ctx.strokeStyle = `rgba(255, 241, 118, ${ringAlpha.toFixed(2)})`;
+      ctx.lineWidth = 2.5;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(side * 12, 3, 8, side > 0 ? -0.7 : Math.PI - 0.7, side > 0 ? 0.7 : Math.PI + 0.7);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
 
     const whistleLift = this.hornActive ? -5 : 0;
     ctx.fillStyle = '#FFD54F';
@@ -1779,7 +1870,7 @@ export const trainGameDefinition: ArcadeGameDefinition<TrainAction> = {
     secondaryTags: ['D1'],
   },
   controls: [
-    { action: 'startEngine', button: 'GREEN', label: 'Engine', icon: 'engine' },
+    { action: 'chugBell', button: 'GREEN', label: 'Chug & Bell', icon: 'bubbles' },
     { action: 'horn', button: 'YELLOW', label: 'Whistle', icon: 'horn' },
     { action: 'brake', button: 'RED', label: 'Brakes', icon: 'brake' },
     { action: 'cycleColor', button: 'BLUE', label: 'Paint', icon: 'palette' },

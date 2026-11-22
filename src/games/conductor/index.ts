@@ -113,6 +113,28 @@ interface FireEmber {
   maxAge: number;
 }
 
+interface ForkCoinTrail {
+  forkIndex: number;
+  branch: BranchDir;
+  offsets: number[];
+  collected: boolean[];
+}
+
+interface StarterCoin {
+  worldZ: number;
+  collected: boolean;
+}
+
+interface CoinPickupBurst {
+  nx: number;
+  ny: number;
+  vx: number;
+  vy: number;
+  age: number;
+  maxAge: number;
+  isLabel?: boolean;
+}
+
 const FIRST_FORK_Z = 920;
 const FORK_SPACING = 2150; // ~7 seconds apart at cruising speed
 const TURN_LEN = 840; // Smooth S-curve turnout length past the switch frog
@@ -193,10 +215,44 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
   private whistlePuffTimer = 0;
   private smokePuffs: CabSmokePuff[] = [];
 
+  // Gold coins & Score state
+  private score = 0;
+  private scorePopTimer = 0;
+  private coinStreak = 0;
+  private coinStreakTimer = 0;
+  private forkCoinTrails = new Map<number, ForkCoinTrail>();
+  private starterCoins: StarterCoin[] = [
+    { worldZ: 340, collected: false },
+    { worldZ: 520, collected: false },
+  ];
+  private coinBursts: CoinPickupBurst[] = [];
+
   constructor(context: GameContext) {
     this.audio = context.audio;
     const f0 = this.getOrCreateFork(0);
+    this.getOrCreateForkCoins(f0);
     this.conductorSignal = f0.selectedBranch;
+  }
+
+  /** Assigns a random branch on each fork to hold a trail of shiny gold coins */
+  private getOrCreateForkCoins(fork: TrackFork): ForkCoinTrail {
+    const existing = this.forkCoinTrails.get(fork.index);
+    if (existing) return existing;
+
+    const available: BranchDir[] = fork.hasStraight
+      ? ['left', 'straight', 'right']
+      : ['left', 'right'];
+    const chosenBranch = available[Math.floor(Math.random() * available.length)];
+    const offsets = [185, 295, 405, 515];
+
+    const created: ForkCoinTrail = {
+      forkIndex: fork.index,
+      branch: chosenBranch,
+      offsets,
+      collected: offsets.map(() => false),
+    };
+    this.forkCoinTrails.set(fork.index, created);
+    return created;
   }
 
   /**
@@ -469,6 +525,95 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
       p.y += p.vy * dt;
       p.radius += 18 * dt;
     }
+
+    // 4. Gold Coin collection & celebration sparkles!
+    if (this.scorePopTimer > 0) {
+      this.scorePopTimer = Math.max(0, this.scorePopTimer - dt);
+    }
+    if (this.coinStreakTimer > 0) {
+      this.coinStreakTimer = Math.max(0, this.coinStreakTimer - dt);
+      if (this.coinStreakTimer === 0) this.coinStreak = 0;
+    }
+
+    const noseZ = this.trackDist + 82;
+    const nosePose = this.evalActiveTrackPose(noseZ);
+
+    // Check starter coins on opening stretch
+    for (const sc of this.starterCoins) {
+      if (!sc.collected && Math.abs(noseZ - sc.worldZ) < 56) {
+        sc.collected = true;
+        this.collectGoldCoin();
+      }
+    }
+
+    // Check fork branch coins near locomotive nose
+    const nearForkIdx = Math.max(
+      0,
+      Math.floor((noseZ - FIRST_FORK_Z) / FORK_SPACING)
+    );
+    for (const fIdx of [nearForkIdx - 1, nearForkIdx, nearForkIdx + 1]) {
+      if (fIdx < 0) continue;
+      const fk = this.getOrCreateFork(fIdx);
+      const trail = this.getOrCreateForkCoins(fk);
+      if (fk.selectedBranch !== trail.branch) continue;
+
+      for (let c = 0; c < trail.offsets.length; c++) {
+        if (trail.collected[c]) continue;
+        const cwz = fk.worldZ + trail.offsets[c];
+        if (Math.abs(noseZ - cwz) < 58) {
+          const cwx = this.evalForkBranchX(fk, trail.branch, cwz);
+          if (Math.abs(cwx - nosePose.x) < 120) {
+            trail.collected[c] = true;
+            this.collectGoldCoin();
+          }
+        }
+      }
+    }
+
+    for (let i = this.coinBursts.length - 1; i >= 0; i--) {
+      const b = this.coinBursts[i];
+      b.age += dt;
+      if (b.age >= b.maxAge) {
+        this.coinBursts.splice(i, 1);
+        continue;
+      }
+      b.nx += b.vx * dt;
+      b.ny += b.vy * dt;
+      if (!b.isLabel) {
+        b.vy += 0.52 * dt;
+      }
+    }
+  }
+
+  private collectGoldCoin(): void {
+    this.score += 1;
+    this.scorePopTimer = 0.42;
+    this.coinStreak = this.coinStreakTimer > 0 ? this.coinStreak + 1 : 0;
+    this.coinStreakTimer = 1.25;
+    this.audio.playCoinCollect(this.coinStreak);
+
+    // Floating "+1" pop + golden sparkle star burst above boiler nose
+    this.coinBursts.push({
+      nx: 0.5,
+      ny: 0.44,
+      vx: 0,
+      vy: -0.2,
+      age: 0,
+      maxAge: 0.72,
+      isLabel: true,
+    });
+    for (let k = 0; k < 10; k++) {
+      const ang = (k / 10) * Math.PI * 2 + Math.random() * 0.25;
+      const spd = 0.14 + Math.random() * 0.18;
+      this.coinBursts.push({
+        nx: 0.5 + (Math.random() - 0.5) * 0.04,
+        ny: 0.48,
+        vx: Math.cos(ang) * spd * 0.65,
+        vy: Math.sin(ang) * spd - 0.14,
+        age: 0,
+        maxAge: 0.55 + Math.random() * 0.2,
+      });
+    }
   }
 
   private setSwitchSelection(fork: TrackFork, branch: BranchDir): void {
@@ -639,6 +784,10 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
       upcomingFork,
       forkRelZ
     );
+
+    // 9. Coin Pickup Celebration Sparkles + Brass Gold Coin Score Plaque!
+    this.drawCoinPickupEffects(ctx, width, height);
+    this.drawCoinScorePlaque(ctx, 18, 10);
   }
 
   private drawExteriorHorizon(
@@ -1067,11 +1216,134 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
       });
     }
 
+    // 3. Collect shiny 3D Gold Coins on starter track & random fork branches!
+    for (let sIdx = 0; sIdx < this.starterCoins.length; sIdx++) {
+      const sc = this.starterCoins[sIdx];
+      if (sc.collected || sc.worldZ <= this.trackDist + 18 || sc.worldZ >= this.trackDist + Z_FAR) {
+        continue;
+      }
+      const cwx = this.evalActiveTrackPose(sc.worldZ).x;
+      items.push({
+        worldZ: sc.worldZ,
+        draw: () =>
+          this.drawGoldCoin3D(
+            ctx,
+            cwx,
+            sc.worldZ,
+            sIdx * 0.8,
+            trainPose,
+            centerX,
+            horizonY,
+            trackBaseY
+          ),
+      });
+    }
+
+    for (const fk of visibleForks) {
+      const trail = this.getOrCreateForkCoins(fk);
+      for (let c = 0; c < trail.offsets.length; c++) {
+        if (trail.collected[c]) continue;
+        const cwz = fk.worldZ + trail.offsets[c];
+        if (cwz <= this.trackDist + 18 || cwz >= this.trackDist + Z_FAR) continue;
+        const cwx = this.evalForkBranchX(fk, trail.branch, cwz);
+        items.push({
+          worldZ: cwz,
+          draw: () =>
+            this.drawGoldCoin3D(
+              ctx,
+              cwx,
+              cwz,
+              c * 0.65 + fk.index,
+              trainPose,
+              centerX,
+              horizonY,
+              trackBaseY
+            ),
+        });
+      }
+    }
+
     // Painter's algorithm: farthest worldZ drawn first, closest drawn last!
     items.sort((a, b) => b.worldZ - a.worldZ);
     for (const item of items) {
       item.draw();
     }
+  }
+
+  private drawGoldCoin3D(
+    ctx: CanvasRenderingContext2D,
+    worldX: number,
+    worldZ: number,
+    phaseOffset: number,
+    trainPose: { x: number; slope: number },
+    centerX: number,
+    horizonY: number,
+    trackBaseY: number
+  ): void {
+    const { sx, sy, scale } = this.projectWorld(
+      worldX,
+      worldZ,
+      trainPose,
+      centerX,
+      horizonY,
+      trackBaseY
+    );
+    if (scale < 0.045) return;
+
+    const r = Math.max(4.5, 42 * scale);
+    const bob = Math.sin(this.time * 4.5 + phaseOffset) * (6 * scale);
+    const cy = sy - 38 * scale + bob;
+    const spinCos = Math.cos(this.time * 4.0 + phaseOffset);
+    const faceW = Math.max(0.24, Math.abs(spinCos)) * r;
+    const rimShift = Math.sign(spinCos || 1) * Math.max(1.5, 5.5 * scale);
+
+    ctx.save();
+
+    // Ground shadow between the rails
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 2 * scale, r * 0.72, Math.max(2, r * 0.22), 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Soft golden aura so coins gleam clearly even far down a fork branch
+    const aura = ctx.createRadialGradient(sx, cy, r * 0.2, sx, cy, r * 1.55);
+    aura.addColorStop(0, 'rgba(255, 238, 88, 0.45)');
+    aura.addColorStop(1, 'rgba(255, 213, 79, 0)');
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(sx, cy, r * 1.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3D Gold Edge Thickness
+    ctx.fillStyle = '#E65100';
+    ctx.beginPath();
+    ctx.ellipse(sx + rimShift, cy, faceW, r, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Gleaming Gold Face
+    const coinGrad = ctx.createLinearGradient(sx - faceW, cy - r, sx + faceW, cy + r);
+    coinGrad.addColorStop(0, '#FFF59D');
+    coinGrad.addColorStop(0.5, '#FFD54F');
+    coinGrad.addColorStop(1, '#FFB300');
+    ctx.fillStyle = coinGrad;
+    ctx.strokeStyle = '#FFFDE7';
+    ctx.lineWidth = Math.max(1.2, 2.5 * scale);
+    ctx.beginPath();
+    ctx.ellipse(sx, cy, faceW, r, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Embossed inner coin slot / bar
+    if (faceW > r * 0.35) {
+      ctx.fillStyle = '#F57F17';
+      const barW = Math.max(1.5, faceW * 0.24);
+      const barH = r * 0.92;
+      ctx.beginPath();
+      ctx.roundRect(sx - barW / 2, cy - barH / 2, barW, barH, barW / 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   /**
@@ -1893,6 +2165,8 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
     ctx.save();
     ctx.globalAlpha = fadeAlpha;
 
+    const coinTrail = this.getOrCreateForkCoins(fork);
+
     for (const b of branches) {
       const targetWorldX = this.evalForkBranchX(fork, b.dir, anchorWorldZ);
       const trackPt = this.projectWorld(
@@ -1972,6 +2246,36 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(destTag, bx, by + r + 17);
+
+      // Shiny Gold Coin indicator badge on whichever branch holds the gold coin trail!
+      if (coinTrail.branch === b.dir && coinTrail.collected.some((v) => !v)) {
+        const coinCx = bx + r + 6;
+        const coinCy = by - r * 0.55 + Math.sin(this.time * 5.5) * 3;
+        const coinR = 12;
+        const spinW = Math.max(0.32, Math.abs(Math.cos(this.time * 4.2))) * coinR;
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(255, 193, 7, 0.85)';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#E65100';
+        ctx.beginPath();
+        ctx.ellipse(coinCx + 2, coinCy, spinW, coinR, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFD54F';
+        ctx.strokeStyle = '#FFFDE7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(coinCx, coinCy, spinW, coinR, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        if (spinW > coinR * 0.4) {
+          ctx.fillStyle = '#F57F17';
+          ctx.fillRect(coinCx - 1.5, coinCy - 5.5, 3, 11);
+        }
+        ctx.restore();
+      }
     }
 
     ctx.restore();
@@ -2728,6 +3032,121 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
     ctx.fill();
   }
 
+  private drawCoinPickupEffects(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number
+  ): void {
+    const cx = width * 0.5;
+    const baseY = height * 0.58;
+
+    for (const burst of this.coinBursts) {
+      const p = clamp01(burst.age / burst.maxAge);
+      const alpha = Math.pow(1 - p, 1.35);
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // Expanding golden ring + 6 star sparkles
+      const ringR = 18 + p * 84;
+      ctx.strokeStyle = '#FFE082';
+      ctx.lineWidth = 3.5 * (1 - p * 0.6);
+      ctx.beginPath();
+      ctx.arc(cx, baseY - p * 54, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + p * 1.4;
+        const sx = cx + Math.cos(ang) * (24 + p * 92);
+        const sy = baseY - p * 54 + Math.sin(ang) * (16 + p * 56);
+        const sr = (1 - p * 0.65) * 8;
+        ctx.fillStyle = i % 2 === 0 ? '#FFF59D' : '#FFB300';
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Floating "+1" badge rising toward the top-left score plaque
+      const tx = lerp(cx, 110, p * 0.55);
+      const ty = baseY - 22 - p * 125;
+      ctx.font = '900 32px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#4E342E';
+      ctx.strokeText('+1', tx, ty);
+      ctx.fillStyle = '#FFD54F';
+      ctx.fillText('+1', tx, ty);
+
+      ctx.restore();
+    }
+  }
+
+  private drawCoinScorePlaque(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    const popScale = 1 + Math.sin(this.scorePopTimer * Math.PI) * 0.16;
+    const w = 158;
+    const h = 48;
+
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-w / 2, -h / 2);
+
+    // Brass-rimmed locomotive score plaque
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = 'rgba(20, 25, 38, 0.9)';
+    ctx.strokeStyle = '#FFD54F';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, 24);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowColor = 'transparent';
+
+    // Gleaming Gold Coin Icon
+    const coinX = 27;
+    const coinY = h / 2;
+    const coinR = 14;
+    const spinW = Math.max(0.45, Math.abs(Math.cos(this.time * 3.2))) * coinR;
+    ctx.fillStyle = '#E65100';
+    ctx.beginPath();
+    ctx.ellipse(coinX + 2, coinY, spinW, coinR, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const coinGrad = ctx.createLinearGradient(coinX - coinR, coinY - coinR, coinX + coinR, coinY + coinR);
+    coinGrad.addColorStop(0, '#FFF59D');
+    coinGrad.addColorStop(0.55, '#FFD54F');
+    coinGrad.addColorStop(1, '#FFB300');
+    ctx.fillStyle = coinGrad;
+    ctx.strokeStyle = '#FFFDE7';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(coinX, coinY, spinW, coinR, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    if (spinW > coinR * 0.45) {
+      ctx.fillStyle = '#F57F17';
+      ctx.fillRect(coinX - 2, coinY - 6, 4, 12);
+    }
+
+    // Score label + big readable count
+    ctx.fillStyle = '#FFE082';
+    ctx.font = '800 10px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('SCORE', 50, 7);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 22px system-ui, -apple-system, sans-serif';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${this.score}`, 50, h - 5);
+
+    ctx.restore();
+  }
+
   public destroy(): void {
     this.audio.stopAllLoops();
   }
@@ -2736,7 +3155,7 @@ class ConductorCabGame implements ArcadeGameInstance<ConductorAction> {
 export const conductorGameDefinition: ArcadeGameDefinition<ConductorAction> = {
   id: 'conductor-pov',
   title: 'Cab Conductor',
-  subtitle: 'Steer track switches from the cab!',
+  subtitle: 'Steer track switches toward shiny gold coins!',
   accentColor: '#FFB300',
   developmental: {
     parentCategory: 'Paths & Choices',
@@ -2793,6 +3212,21 @@ export const conductorGameDefinition: ArcadeGameDefinition<ConductorAction> = {
       ctx.beginPath();
       ctx.arc(cx + targetOff, horizonY - 4, 9, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // Mini gleaming Gold Coins along the right branch on the cover!
+    for (let i = 0; i < 3; i++) {
+      const frac = 0.28 + i * 0.25;
+      const coinX = cx + 56 * (1 - frac * 0.65);
+      const coinY = horizonY + 12 + frac * (dashY - horizonY - 22) + (selected ? Math.sin(timeSec * 5 + i) * 2 : 0);
+      const cr = 5.5 + frac * 3.5;
+      ctx.fillStyle = '#FFD54F';
+      ctx.strokeStyle = '#FFFDE7';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(coinX, coinY, cr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
 
     ctx.fillStyle = '#1E272E';

@@ -362,6 +362,157 @@ export class ArcadeAudio {
     });
   }
 
+  /**
+   * 4 distinct, harmonious car horns for Cars & Horns (all rooted in C major so mashing sounds great!):
+   * - 0 (Racer): Zippy sporty dual-tone "Beep-Beep!"
+   * - 1 (Buggy): Playful vintage bulb klaxon "Awoo-ga!"
+   * - 2 (Truck): Warm deep big-rig brass air horn "HOOONK-honk!"
+   * - 3 (Van):   Cheerful 4-note musical chime horn "Doo-Dee-Doo-Da!"
+   */
+  public playUniqueCarHorn(carIndex: number): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    const slot = ((carIndex % 4) + 4) % 4;
+
+    if (slot === 0) {
+      // 0: Sporty Italian dual-tone "Meep-Meep!" (C5 + E5)
+      [0, 0.125].forEach((delay) => {
+        const t = now + delay;
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sawtooth';
+        osc2.type = 'triangle';
+        osc1.frequency.setValueAtTime(523.25, t); // C5
+        osc2.frequency.setValueAtTime(659.25, t); // E5
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1750, t);
+
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.22, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.095);
+
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain!);
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + 0.105);
+        osc2.stop(t + 0.105);
+      });
+    } else if (slot === 1) {
+      // 1: Vintage bouncy bulb klaxon "A-WOO-ga!"
+      const osc = ctx.createOscillator();
+      const sub = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      sub.type = 'triangle';
+
+      // "A-" -> "-WOO-" -> "-ga!"
+      osc.frequency.setValueAtTime(329.63, now);
+      osc.frequency.exponentialRampToValueAtTime(440.0, now + 0.075);
+      osc.frequency.setValueAtTime(370.0, now + 0.095);
+      osc.frequency.exponentialRampToValueAtTime(523.25, now + 0.21);
+      osc.frequency.exponentialRampToValueAtTime(329.63, now + 0.37);
+
+      sub.frequency.setValueAtTime(164.81, now);
+      sub.frequency.exponentialRampToValueAtTime(261.63, now + 0.21);
+      sub.frequency.exponentialRampToValueAtTime(164.81, now + 0.37);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(920, now);
+      filter.Q.setValueAtTime(2.0, now);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.26, now + 0.025);
+      gain.gain.setValueAtTime(0.12, now + 0.085);
+      gain.gain.linearRampToValueAtTime(0.28, now + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.39);
+
+      osc.connect(filter);
+      sub.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      sub.start(now);
+      osc.stop(now + 0.41);
+      sub.stop(now + 0.41);
+    } else if (slot === 2) {
+      // 2: Warm deep big-rig brass air horn ("HOOONK-honk!") in low C major (C3 + G3 + E4)
+      const blasts: Array<{ delay: number; dur: number; peak: number }> = [
+        { delay: 0, dur: 0.24, peak: 0.22 },
+        { delay: 0.27, dur: 0.16, peak: 0.19 },
+      ];
+      blasts.forEach(({ delay, dur, peak }) => {
+        const t = now + delay;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(980, t);
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(peak, t + 0.022);
+        gain.gain.setValueAtTime(peak * 0.85, t + dur * 0.65);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+        filter.connect(gain);
+        gain.connect(this.masterGain!);
+
+        [130.81, 196.0, 329.63].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const oscGain = ctx.createGain();
+          osc.type = idx === 2 ? 'triangle' : 'sawtooth';
+          osc.frequency.setValueAtTime(freq * 0.985, t);
+          osc.frequency.exponentialRampToValueAtTime(freq, t + 0.03);
+          oscGain.gain.value = idx === 0 ? 0.5 : 0.35;
+          osc.connect(oscGain);
+          oscGain.connect(filter);
+          osc.start(t);
+          osc.stop(t + dur + 0.02);
+        });
+      });
+    } else {
+      // 3: Cheerful musical camper/ice-cream van chime horn ("Doo-Dee-Doo-Da!")
+      const melody = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+      melody.forEach((freq, idx) => {
+        const t = now + idx * 0.068;
+        const main = ctx.createOscillator();
+        const bell = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        main.type = 'triangle';
+        bell.type = 'sine';
+        main.frequency.setValueAtTime(freq, t);
+        bell.frequency.setValueAtTime(freq * 2, t);
+
+        const dur = idx === melody.length - 1 ? 0.24 : 0.14;
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.22, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+        const bellGain = ctx.createGain();
+        bellGain.gain.value = 0.28;
+
+        main.connect(gain);
+        bell.connect(bellGain);
+        bellGain.connect(gain);
+        gain.connect(this.masterGain!);
+
+        main.start(t);
+        bell.start(t);
+        main.stop(t + dur + 0.02);
+        bell.stop(t + dur + 0.02);
+      });
+    }
+  }
+
   /** Bubbly pop sound during soap scrubbing */
   public playBubblePop(): void {
     const ctx = this.ensureContext();
@@ -980,5 +1131,104 @@ export class ArcadeAudio {
     g.connect(this.masterGain);
     osc.start(now);
     osc.stop(now + 0.15);
+  }
+
+  /** Whisper-soft wooden spinner tick as the center shape rotates */
+  public playSpinnerTick(speedRatio = 0.5): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    const clamped = Math.max(0, Math.min(1, speedRatio));
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    const baseFreq = 320 + clamped * 260;
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.68, now + 0.032);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.055 + clamped * 0.045, now + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.042);
+  }
+
+  /** Bright, cheerful two-note gold coin pickup chime ("b-ding!") for Cab Conductor */
+  public playCoinCollect(streak = 0): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const now = ctx.currentTime;
+    const pitchBoost = 1 + Math.min(4, streak) * 0.035;
+    const notes: Array<{ freq: number; delay: number; dur: number; gain: number }> = [
+      { freq: 987.77 * pitchBoost, delay: 0, dur: 0.09, gain: 0.2 }, // B5
+      { freq: 1318.51 * pitchBoost, delay: 0.065, dur: 0.28, gain: 0.24 }, // E6
+    ];
+
+    for (const n of notes) {
+      const t = now + n.delay;
+      const osc = ctx.createOscillator();
+      const overtone = ctx.createOscillator();
+      const g = ctx.createGain();
+      const og = ctx.createGain();
+
+      osc.type = 'sine';
+      overtone.type = 'triangle';
+      osc.frequency.setValueAtTime(n.freq, t);
+      overtone.frequency.setValueAtTime(n.freq * 2, t);
+
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(n.gain, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+
+      og.gain.value = 0.22;
+
+      osc.connect(g);
+      overtone.connect(og);
+      og.connect(g);
+      g.connect(this.masterGain);
+
+      osc.start(t);
+      overtone.start(t);
+      osc.stop(t + n.dur + 0.02);
+      overtone.stop(t + n.dur + 0.02);
+    }
+  }
+
+  /**
+   * Warm brass locomotive bell "DING!" + crisp steam-ring puff for Choo-Choo Train's Green button.
+   */
+  public playTrainBellChug(ringIndex = 0): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+
+    const now = ctx.currentTime;
+    // Alternate subtly between two classic brass-bell partials (G5 / A5) so rapid mashing sings!
+    const baseFreq = ringIndex % 2 === 0 ? 783.99 : 880.0;
+
+    // 1. Warm brass bell strike (fundamental + metallic bell partial)
+    const partials = [
+      { ratio: 1.0, gain: 0.2, dur: 0.42 },
+      { ratio: 2.0, gain: 0.09, dur: 0.28 },
+      { ratio: 2.74, gain: 0.055, dur: 0.19 },
+    ];
+    for (const p of partials) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(baseFreq * p.ratio, now);
+
+      g.gain.setValueAtTime(0.001, now);
+      g.gain.linearRampToValueAtTime(p.gain, now + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.001, now + p.dur);
+
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + p.dur + 0.02);
+    }
+
+    // 2. Punchy steam-ring "CHUG!" puff underneath
+    this.playTrainChug(0.95, true);
   }
 }
